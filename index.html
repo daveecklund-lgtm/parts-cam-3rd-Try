@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Parts Cam</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#1c1d1f;
+    --panel:#26282b;
+    --panel-alt:#2f3134;
+    --orange:#ff6a1a;
+    --orange-dim:#b8481a;
+    --blue:#4e88b4;
+    --text:#edebe6;
+    --text-dim:#8d9096;
+    --success:#5fae6e;
+    --error:#d9564b;
+    --line:#3a3c3f;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;height:100%;overscroll-behavior:none;}
+  #app{display:flex;flex-direction:column;height:100vh;max-width:520px;margin:0 auto;position:relative;}
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px 10px;flex-shrink:0;
+  }
+  .brand{display:flex;align-items:baseline;gap:8px;}
+  .brand .mark{width:10px;height:10px;background:var(--orange);border-radius:2px;transform:rotate(45deg);}
+  .brand h1{font-family:'Oswald',sans-serif;font-size:19px;letter-spacing:0.04em;font-weight:600;margin:0;text-transform:uppercase;}
+  .brand small{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);letter-spacing:0.05em;}
+
+  .drive-pill{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:5px 10px;border-radius:20px;
+    display:flex;align-items:center;gap:6px;cursor:pointer;border:1px solid var(--line);background:var(--panel);
+    color:var(--text-dim); white-space:nowrap;
+  }
+  .drive-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim);}
+  .drive-pill.on{color:var(--success);border-color:rgba(95,174,110,0.4);}
+  .drive-pill.on .dot{background:var(--success);}
+
+  .spec-strip{
+    display:flex;gap:0;margin:0 16px 10px;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-shrink:0;
+  }
+  .spec{flex:1;padding:7px 8px;text-align:center;border-right:1px solid var(--line);}
+  .spec:last-child{border-right:none;}
+  .spec .k{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;}
+  .spec .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-top:2px;font-weight:600;}
+
+  .viewfinder-wrap{
+    flex:1;position:relative;margin:0 16px;border-radius:14px;overflow:hidden;background:#000;min-height:0;
+  }
+  video{width:100%;height:100%;object-fit:cover;display:block;}
+  .brackets{position:absolute;inset:14px;pointer-events:none;}
+  .brackets span{position:absolute;width:26px;height:26px;border:2.5px solid var(--orange);opacity:0.85;}
+  .brackets .tl{top:0;left:0;border-right:none;border-bottom:none;}
+  .brackets .tr{top:0;right:0;border-left:none;border-bottom:none;}
+  .brackets .bl{bottom:0;left:0;border-right:none;border-top:none;}
+  .brackets .br{bottom:0;right:0;border-left:none;border-top:none;}
+  .cam-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--text-dim);font-size:13px;}
+
+  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;}
+  .shutter{
+    width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
+    box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:transform 0.08s ease;
+  }
+  .shutter:active{transform:scale(0.92);}
+  .shutter svg{width:26px;height:26px;fill:#1c1d1f;}
+
+  .tally{
+    display:flex;justify-content:space-between;align-items:center;
+    margin:0 16px;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;flex-shrink:0;
+  }
+  .tally .grp{display:flex;gap:14px;}
+  .tally .item{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:5px;}
+  .tally .item b{color:var(--text);font-size:13px;}
+  .tally .item.queued b{color:var(--text);}
+  .tally .item.uploaded b{color:var(--success);}
+  .tally .item.error b{color:var(--error);}
+
+  .strip{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;flex-shrink:0;}
+  .thumb{position:relative;width:58px;height:58px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--panel-alt);border:1px solid var(--line);}
+  .thumb img{width:100%;height:100%;object-fit:cover;}
+  .thumb .badge{
+    position:absolute;bottom:0;left:0;right:0;font-family:'IBM Plex Mono',monospace;font-size:8px;text-align:center;
+    padding:2px 0;letter-spacing:0.03em;text-transform:uppercase;
+  }
+  .badge.queued{background:rgba(0,0,0,0.7);color:var(--text-dim);}
+  .badge.processing{background:rgba(78,136,180,0.85);color:#fff;}
+  .badge.ready{background:rgba(255,106,26,0.85);color:#1c1d1f;}
+  .badge.uploaded{background:rgba(95,174,110,0.9);color:#0e2413;}
+  .badge.error{background:rgba(217,86,75,0.9);color:#fff;}
+
+  footer{padding:10px 16px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;}
+  .btn{
+    font-family:'Inter',sans-serif;font-weight:600;font-size:13.5px;padding:12px;border-radius:9px;border:none;
+    cursor:pointer;text-align:center;letter-spacing:0.01em;
+  }
+  .btn-primary{background:var(--orange);color:#1c1d1f;}
+  .btn-primary:disabled{background:var(--panel-alt);color:var(--text-dim);}
+  .btn-secondary{background:transparent;color:var(--text-dim);border:1px solid var(--line);}
+  .btn-google{background:#fff;color:#333;display:flex;align-items:center;justify-content:center;gap:8px;}
+
+  .setup-panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:2px;
+  }
+  .setup-panel p{font-size:11.5px;color:var(--text-dim);line-height:1.5;margin:0 0 8px;}
+  .setup-panel input{
+    width:100%;padding:9px 10px;background:var(--panel-alt);border:1px solid var(--line);border-radius:7px;
+    color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-bottom:8px;
+  }
+  .link{color:var(--blue);text-decoration:underline;cursor:pointer;}
+
+  .toast{
+    position:absolute;bottom:90px;left:16px;right:16px;background:var(--panel-alt);border:1px solid var(--line);
+    border-radius:8px;padding:9px 12px;font-size:12px;color:var(--text);display:none;z-index:20;
+  }
+  .toast.show{display:block;}
+  .toast.error-toast{border-color:rgba(217,86,75,0.5);color:#f2b6b1;}
+
+  ::-webkit-scrollbar{display:none;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>Parts Cam</h1>
+        <small>FORD OEM &middot; LABEL CAPTURE</small>
+      </div>
+    </div>
+    <div class="drive-pill" id="drivePill" onclick="toggleSetup()">
+      <div class="dot"></div>
+      <span id="drivePillText">Drive off</span>
+    </div>
+  </header>
+
+  <div class="spec-strip">
+    <div class="spec"><div class="k">BG</div><div class="v">Removed</div></div>
+    <div class="spec"><div class="k">Size</div><div class="v">1600&sup2;</div></div>
+    <div class="spec"><div class="k">Pad</div><div class="v">5%</div></div>
+    <div class="spec"><div class="k">Out</div><div class="v">JPG</div></div>
+  </div>
+
+  <div id="setupPanel" class="setup-panel" style="display:none; margin:0 16px 10px;">
+    <p>Direct-to-Drive upload needs a Google OAuth Client ID from your own Google Cloud project (Drive API enabled, this page's address added as an Authorized JavaScript origin). This page's address: <span id="originText" style="color:var(--text);"></span></p>
+    <input type="text" id="clientIdInput" placeholder="Paste your OAuth Client ID">
+    <button class="btn btn-primary" onclick="saveClientId()" style="width:100%;">Save & Connect Drive</button>
+  </div>
+
+  <div class="viewfinder-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="brackets">
+      <span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span>
+    </div>
+    <div id="camError" class="cam-error" style="display:none;"></div>
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <div class="shutter-row">
+    <div class="shutter" id="shutterBtn" onclick="capturePhoto()">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+    </div>
+  </div>
+
+  <div class="tally">
+    <div class="grp">
+      <div class="item queued">Queued <b id="cQueued">0</b></div>
+      <div class="item"><span style="color:var(--blue)">Processing</span> <b id="cProc">0</b></div>
+      <div class="item uploaded">Done <b id="cDone">0</b></div>
+      <div class="item error">Errors <b id="cErr">0</b></div>
+    </div>
+  </div>
+
+  <div class="strip" id="strip"></div>
+
+  <footer>
+    <button class="btn btn-google" id="signInBtn" onclick="signIn()" style="display:none;">
+      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v9h11.8c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.09c4.15-3.82 6.62-9.45 6.62-16.66z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.34l-7.09-5.52c-1.97 1.32-4.5 2.1-7.47 2.1-5.74 0-10.6-3.87-12.34-9.06H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.66 28.18c-.44-1.32-.68-2.72-.68-4.18s.24-2.86.68-4.18v-5.7H4.34C2.85 16.97 2 20.36 2 24s.85 7.03 2.34 9.88l7.32-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.32 5.7c1.74-5.19 6.6-9.07 12.34-9.07z"/></svg>
+      Sign in with Google
+    </button>
+    <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="display:none;">Upload All to Drive</button>
+    <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()">Download processed JPGs</button>
+  </footer>
+
+</div>
+
+<script>
+const PHOTOROOM_ENDPOINT = "https://image-api.photoroom.com/v2/edit";
+const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a43a02ee95073";
+const OUTPUT_SIZE = "1600x1600";
+const PADDING = "5%";
+const DRIVE_FOLDER_NAME = "Ford Parts Photos";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.googleusercontent.com";
+
+let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
+let idCounter = 0;
+let clientId = null;
+let tokenClient = null;
+let accessToken = null;
+let driveFolderId = null;
+let processing = false;
+
+function toast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error-toast' : '');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>{ t.className='toast'; }, 3200);
+}
+
+// ---------- storage: remember client id across sessions ----------
+async function loadClientId(){
+  try{
+    const res = await window.storage.get('driveClientId');
+    if(res && res.value) return res.value;
+  }catch(e){}
+  return null;
+}
+async function persistClientId(id){
+  try{ await window.storage.set('driveClientId', id); }catch(e){}
+}
+
+// ---------- camera ----------
+async function startCamera(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1920}, height:{ideal:1920} },
+      audio: false
+    });
+    document.getElementById('video').srcObject = stream;
+  }catch(e){
+    const el = document.getElementById('camError');
+    el.style.display = 'flex';
+    el.textContent = 'Camera unavailable — allow camera access for this page and reload.';
+  }
+}
+
+function capturePhoto(){
+  const video = document.getElementById('video');
+  if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob)=>{
+    const id = ++idCounter;
+    const thumbUrl = URL.createObjectURL(blob);
+    queue.push({ id, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
+    renderStrip();
+    updateCounts();
+    processQueue();
+  }, 'image/jpeg', 0.9);
+}
+
+// ---------- Photoroom processing ----------
+async function processQueue(){
+  if(processing) return;
+  processing = true;
+  for(const item of queue){
+    if(item.status !== 'queued') continue;
+    item.status = 'processing';
+    renderStrip(); updateCounts();
+    try{
+      const jpgBlob = await runPhotoroom(item.rawBlob);
+      item.jpgBlob = jpgBlob;
+      URL.revokeObjectURL(item.thumbUrl);
+      item.thumbUrl = URL.createObjectURL(jpgBlob);
+      if(accessToken){
+        await uploadToDrive(item);
+        item.status = 'uploaded';
+        setTimeout(()=>removeItem(item.id), 900);
+      } else {
+        item.status = 'ready';
+      }
+    }catch(e){
+      console.error(e);
+      item.status = 'error';
+      item.errorMsg = e.message || 'Failed';
+      toast('Processing failed: ' + item.errorMsg, true);
+    }
+    renderStrip(); updateCounts();
+  }
+  processing = false;
+}
+
+async function runPhotoroom(blob){
+  const form = new FormData();
+  form.append('imageFile', blob, 'photo.jpg');
+  const url = `${PHOTOROOM_ENDPOINT}?outputSize=${OUTPUT_SIZE}&padding=${encodeURIComponent(PADDING)}&removeBackground=true&ignorePaddingAndSnapOnCroppedSides=false`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'x-api-key': PHOTOROOM_API_KEY },
+    body: form
+  });
+  if(!res.ok){
+    const text = await res.text().catch(()=> '');
+    throw new Error(`Photoroom ${res.status} ${text.slice(0,120)}`);
+  }
+  const pngBlob = await res.blob();
+  return flattenToJpeg(pngBlob);
+}
+
+// Photoroom returns a transparent PNG after background removal — flatten onto white and export as JPEG.
+function flattenToJpeg(pngBlob){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0);
+      canvas.toBlob((jpgBlob)=>{
+        if(jpgBlob) resolve(jpgBlob); else reject(new Error('JPEG export failed'));
+      }, 'image/jpeg', 0.92);
+    };
+    img.onerror = ()=> reject(new Error('Could not decode processed image'));
+    img.src = URL.createObjectURL(pngBlob);
+  });
+}
+
+// ---------- Google Sign-In ----------
+function toggleSetup(){
+  const p = document.getElementById('setupPanel');
+  document.getElementById('originText').textContent = window.location.origin || window.location.href;
+  p.style.display = (p.style.display === 'none') ? 'block' : 'none';
+}
+
+async function saveClientId(){
+  const val = document.getElementById('clientIdInput').value.trim();
+  if(!val){ toast('Paste a Client ID first', true); return; }
+  clientId = val;
+  await persistClientId(val);
+  document.getElementById('setupPanel').style.display = 'none';
+  document.getElementById('signInBtn').style.display = 'flex';
+  toast('Client ID saved. Tap "Sign in with Google" to connect.');
+  initGoogleClient();
+}
+
+function initGoogleClient(){
+  if(!window.google || !clientId) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: DRIVE_SCOPE,
+    callback: async (resp)=>{
+      if(resp.error){ toast('Sign-in failed: ' + resp.error, true); return; }
+      accessToken = resp.access_token;
+      setDriveOn(true);
+      toast('Connected to Google Drive');
+      try{
+        driveFolderId = await ensureDriveFolder();
+      }catch(e){
+        toast('Could not access Drive folder: ' + e.message, true);
+      }
+      // flush any photos already processed while signed out
+      for(const item of queue){
+        if(item.status === 'ready'){
+          try{
+            await uploadToDrive(item);
+            item.status = 'uploaded';
+            setTimeout(()=>removeItem(item.id), 900);
+          }catch(e){ item.status='error'; item.errorMsg = e.message; }
+        }
+      }
+      renderStrip(); updateCounts();
+    }
+  });
+}
+
+function signIn(){
+  if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
+  tokenClient.requestAccessToken();
+}
+
+function setDriveOn(on){
+  const pill = document.getElementById('drivePill');
+  document.getElementById('drivePillText').textContent = on ? 'Drive on' : 'Drive off';
+  pill.className = 'drive-pill' + (on ? ' on' : '');
+  document.getElementById('signInBtn').style.display = on ? 'none' : (clientId ? 'flex' : 'none');
+  document.getElementById('uploadAllBtn').style.display = on ? 'block' : 'none';
+}
+
+// ---------- Drive upload ----------
+async function ensureDriveFolder(){
+  const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const searchData = await searchRes.json();
+  if(searchData.files && searchData.files.length){
+    return searchData.files[0].id;
+  }
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const createData = await createRes.json();
+  return createData.id;
+}
+
+async function uploadToDrive(item){
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+  const metadata = {
+    name: `ford-part-${item.id}-${Date.now()}.jpg`,
+    parents: [driveFolderId]
+  };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
+  form.append('file', item.jpgBlob);
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form
+  });
+  if(!res.ok){
+    const text = await res.text().catch(()=>'');
+    throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
+  }
+}
+
+// ---------- UI ----------
+function removeItem(id){
+  const idx = queue.findIndex(q=>q.id===id);
+  if(idx>-1){
+    URL.revokeObjectURL(queue[idx].thumbUrl);
+    queue.splice(idx,1);
+    renderStrip(); updateCounts();
+  }
+}
+
+function renderStrip(){
+  const strip = document.getElementById('strip');
+  strip.innerHTML = '';
+  queue.forEach(item=>{
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${labelFor(item.status)}</div>`;
+    if(item.status === 'error'){
+      div.onclick = ()=>{ item.status='queued'; item.errorMsg=null; renderStrip(); updateCounts(); processQueue(); };
+    }
+    strip.appendChild(div);
+  });
+}
+
+function labelFor(status){
+  switch(status){
+    case 'queued': return 'Queued';
+    case 'processing': return 'Working';
+    case 'ready': return 'Ready';
+    case 'uploaded': return 'Saved';
+    case 'error': return 'Retry';
+    default: return status;
+  }
+}
+
+function updateCounts(){
+  document.getElementById('cQueued').textContent = queue.filter(i=>i.status==='queued').length;
+  document.getElementById('cProc').textContent = queue.filter(i=>i.status==='processing').length;
+  document.getElementById('cDone').textContent = queue.filter(i=>i.status==='uploaded').length;
+  document.getElementById('cErr').textContent = queue.filter(i=>i.status==='error').length;
+  document.getElementById('downloadAllBtn').style.display = queue.some(i=>i.status==='ready') ? 'block' : (queue.length ? 'block' : 'none');
+}
+
+function downloadReady(){
+  const ready = queue.filter(i=>i.jpgBlob);
+  if(!ready.length){ toast('No processed photos yet', true); return; }
+  ready.forEach((item, i)=>{
+    setTimeout(()=>{
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(item.jpgBlob);
+      a.download = `ford-part-${item.id}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      if(item.status === 'ready'){ removeItem(item.id); }
+    }, i*250);
+  });
+}
+
+// ---------- init ----------
+window.addEventListener('load', async ()=>{
+  startCamera();
+  clientId = await loadClientId();
+  if(!clientId){
+    clientId = DEFAULT_CLIENT_ID;
+    await persistClientId(clientId);
+  }
+  document.getElementById('clientIdInput').value = clientId;
+  document.getElementById('signInBtn').style.display = 'flex';
+  const check = setInterval(()=>{
+    if(window.google){ clearInterval(check); initGoogleClient(); }
+  }, 200);
+  updateCounts();
+});
+</script>
+</body>
+</html>
