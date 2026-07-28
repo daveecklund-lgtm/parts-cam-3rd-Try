@@ -144,10 +144,9 @@
   </header>
 
   <div class="spec-strip">
-    <div class="spec"><div class="k">BG</div><div class="v">Removed</div></div>
-    <div class="spec"><div class="k">Size</div><div class="v">1600&sup2;</div></div>
-    <div class="spec"><div class="k">Pad</div><div class="v">5%</div></div>
-    <div class="spec"><div class="k">Out</div><div class="v">JPG</div></div>
+    <div class="spec"><div class="k">BG</div><div class="v">Skipped</div></div>
+    <div class="spec"><div class="k">Edit</div><div class="v">Photoroom app</div></div>
+    <div class="spec"><div class="k">Out</div><div class="v">Raw JPG</div></div>
   </div>
 
   <div id="setupPanel" class="setup-panel" style="display:none; margin:0 16px 10px;">
@@ -271,10 +270,8 @@ async function processQueue(){
     item.status = 'processing';
     renderStrip(); updateCounts();
     try{
-      const jpgBlob = await runPhotoroom(item.rawBlob);
+      const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
       item.jpgBlob = jpgBlob;
-      URL.revokeObjectURL(item.thumbUrl);
-      item.thumbUrl = URL.createObjectURL(jpgBlob);
       if(accessToken){
         await uploadToDrive(item);
         item.status = 'uploaded';
@@ -291,44 +288,6 @@ async function processQueue(){
     renderStrip(); updateCounts();
   }
   processing = false;
-}
-
-async function runPhotoroom(blob){
-  const form = new FormData();
-  form.append('imageFile', blob, 'photo.jpg');
-  const url = `${PHOTOROOM_ENDPOINT}?outputSize=${OUTPUT_SIZE}&padding=${encodeURIComponent(PADDING)}&removeBackground=true&ignorePaddingAndSnapOnCroppedSides=false`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'x-api-key': PHOTOROOM_API_KEY },
-    body: form
-  });
-  if(!res.ok){
-    const text = await res.text().catch(()=> '');
-    throw new Error(`Photoroom ${res.status} ${text.slice(0,120)}`);
-  }
-  const pngBlob = await res.blob();
-  return flattenToJpeg(pngBlob);
-}
-
-// Photoroom returns a transparent PNG after background removal — flatten onto white and export as JPEG.
-function flattenToJpeg(pngBlob){
-  return new Promise((resolve, reject)=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.drawImage(img,0,0);
-      canvas.toBlob((jpgBlob)=>{
-        if(jpgBlob) resolve(jpgBlob); else reject(new Error('JPEG export failed'));
-      }, 'image/jpeg', 0.92);
-    };
-    img.onerror = ()=> reject(new Error('Could not decode processed image'));
-    img.src = URL.createObjectURL(pngBlob);
-  });
 }
 
 // ---------- Google Sign-In ----------
