@@ -123,7 +123,52 @@
   .toast.show{display:block;}
   .toast.error-toast{border-color:rgba(217,86,75,0.5);color:#f2b6b1;}
 
+  .shot-flash{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.7);
+    font-family:'Oswald',sans-serif; font-weight:700; font-size:64px; color:var(--orange);
+    text-shadow:0 0 24px rgba(255,106,26,0.6), 0 2px 8px rgba(0,0,0,0.8);
+    opacity:0; pointer-events:none; z-index:15;
+  }
+  .shot-flash.pop{
+    animation: shotPop 0.55s cubic-bezier(0.2,0.8,0.3,1) forwards;
+  }
+  .shot-flash.small{ font-size:26px; letter-spacing:0.04em; }
+  @keyframes shotPop{
+    0%   { opacity:0; transform:translate(-50%,-50%) scale(0.5); }
+    15%  { opacity:1; transform:translate(-50%,-50%) scale(1.15); }
+    35%  { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) scale(1); }
+  }
+
   ::-webkit-scrollbar{display:none;}
+
+  /* ---- Landscape mode: compact all chrome so the viewfinder stays fully visible ---- */
+  @media (orientation: landscape) and (max-height: 550px){
+    #app{
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+      max-width: none;
+    }
+    header{ padding:6px 12px 4px; }
+    .brand small{ display:none; }
+    .brand h1{ font-size:15px; }
+    .drive-pill{ padding:3px 8px; font-size:9px; }
+    .spec-strip{ display:none; }
+    .viewfinder-wrap{ margin:0 8px; border-radius:10px; }
+    .brackets{ inset:8px; }
+    .brackets span{ width:18px; height:18px; }
+    .shutter-row{ padding:8px 16px; }
+    .shutter{ width:52px; height:52px; }
+    .shutter svg{ width:18px; height:18px; }
+    .tally{ padding:5px 10px; margin:0 8px; }
+    .tally .item{ font-size:10px; }
+    .tally .item b{ font-size:11px; }
+    .strip{ padding:6px 12px; }
+    .thumb{ width:42px; height:42px; }
+    footer{ padding:6px 12px 10px; flex-direction:row; gap:6px; }
+    footer .btn{ padding:8px; font-size:11.5px; flex:1; }
+    .setup-panel{ margin:0 12px 6px !important; }
+  }
 </style>
 </head>
 <body>
@@ -155,13 +200,14 @@
     <button class="btn btn-primary" onclick="saveClientId()" style="width:100%;">Save & Connect Drive</button>
   </div>
 
-  <div class="viewfinder-wrap">
+  <div class="viewfinder-wrap" onclick="if(event.target.id!=='video') return; resetShotCounter();">
     <video id="video" autoplay playsinline muted></video>
     <div class="brackets">
       <span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span>
     </div>
     <div id="camError" class="cam-error" style="display:none;"></div>
     <div id="toast" class="toast"></div>
+    <div id="shotFlash" class="shot-flash"></div>
   </div>
 
   <div class="shutter-row">
@@ -203,11 +249,47 @@ const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.g
 
 let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
 let idCounter = 0;
+let shotCount = 0;       // cycles 1-5 per part, resets automatically
 let clientId = null;
 let tokenClient = null;
 let accessToken = null;
 let driveFolderId = null;
 let processing = false;
+let audioCtx = null;
+
+function playShutterSound(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audioCtx.currentTime;
+    // quick two-part click: a short high tick + a lower thunk, like a shutter
+    const osc1 = audioCtx.createOscillator();
+    const gain1 = audioCtx.createGain();
+    osc1.type = 'square'; osc1.frequency.setValueAtTime(1800, t0);
+    gain1.gain.setValueAtTime(0.18, t0);
+    gain1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
+    osc1.connect(gain1).connect(audioCtx.destination);
+    osc1.start(t0); osc1.stop(t0 + 0.04);
+
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'sine'; osc2.frequency.setValueAtTime(220, t0 + 0.03);
+    gain2.gain.setValueAtTime(0.001, t0 + 0.03);
+    gain2.gain.linearRampToValueAtTime(0.15, t0 + 0.035);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+    osc2.connect(gain2).connect(audioCtx.destination);
+    osc2.start(t0 + 0.03); osc2.stop(t0 + 0.1);
+  }catch(e){ /* audio not available, ignore */ }
+}
+
+function flashShotNumber(){
+  shotCount = (shotCount % 5) + 1; // cycles 1,2,3,4,5,1,2...
+  const el = document.getElementById('shotFlash');
+  el.textContent = shotCount;
+  el.classList.remove('pop','small');
+  // restart animation
+  void el.offsetWidth;
+  el.classList.add('pop');
+}
 
 function toast(msg, isError){
   const t = document.getElementById('toast');
@@ -244,9 +326,22 @@ async function startCamera(){
   }
 }
 
+function resetShotCounter(){
+  shotCount = 0;
+  const el = document.getElementById('shotFlash');
+  el.textContent = 'NEW PART';
+  el.classList.add('small');
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+  toast('Counter reset — next photo starts at 1');
+}
+
 function capturePhoto(){
   const video = document.getElementById('video');
   if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
+  playShutterSound();
+  flashShotNumber();
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
