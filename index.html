@@ -326,6 +326,15 @@ async function loadClientId(){
 async function persistClientId(id){
   try{ await window.storage.set('driveClientId', id); }catch(e){}
 }
+async function hasConsentedBefore(){
+  try{
+    const res = await window.storage.get('driveHasConsented');
+    return !!(res && res.value === 'yes');
+  }catch(e){ return false; }
+}
+async function markConsented(){
+  try{ await window.storage.set('driveHasConsented', 'yes'); }catch(e){}
+}
 
 function sizeViewfinder(){
   const wrap = document.querySelector('.viewfinder-wrap');
@@ -438,8 +447,16 @@ function initGoogleClient(){
     client_id: clientId,
     scope: DRIVE_SCOPE,
     callback: async (resp)=>{
-      if(resp.error){ toast('Sign-in failed: ' + resp.error, true); return; }
+      if(resp.error){
+        // silent attempt failed — show the manual sign-in button instead of a dead end
+        if(resp.error !== 'user_logged_out' && resp.error !== 'immediate_failed'){
+          toast('Sign-in failed: ' + resp.error, true);
+        }
+        document.getElementById('signInBtn').style.display = 'flex';
+        return;
+      }
       accessToken = resp.access_token;
+      await markConsented();
       setDriveOn(true);
       toast('Connected to Google Drive');
       try{
@@ -583,13 +600,20 @@ window.addEventListener('load', async ()=>{
     await persistClientId(clientId);
   }
   document.getElementById('clientIdInput').value = clientId;
-  document.getElementById('signInBtn').style.display = 'flex';
-  const check = setInterval(()=>{
-    if(window.google){ clearInterval(check); initGoogleClient(); }
+  const check = setInterval(async ()=>{
+    if(window.google){
+      clearInterval(check);
+      initGoogleClient();
+      const consented = await hasConsentedBefore();
+      if(consented && tokenClient){
+        tokenClient.requestAccessToken({ prompt: '' }); // silent — reuses existing Google session, no popup if still valid
+      } else {
+        document.getElementById('signInBtn').style.display = 'flex';
+      }
+    }
   }, 200);
   updateCounts();
 });
 </script>
 </body>
 </html>
-
