@@ -52,7 +52,11 @@
   .spec .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-top:2px;font-weight:600;}
 
   .viewfinder-wrap{
-    flex:1;position:relative;margin:0 16px;border-radius:14px;overflow:hidden;background:#000;min-height:0;
+    flex:1; position:relative; margin:0 16px; min-height:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .viewfinder-square{
+    position:relative; overflow:hidden; border-radius:14px; background:#000;
   }
   video{width:100%;height:100%;object-fit:cover;display:block;}
   .brackets{position:absolute;inset:14px;pointer-events:none;}
@@ -201,13 +205,15 @@
   </div>
 
   <div class="viewfinder-wrap" onclick="if(event.target.id!=='video') return; resetShotCounter();">
-    <video id="video" autoplay playsinline muted></video>
-    <div class="brackets">
-      <span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span>
+    <div class="viewfinder-square" id="vfSquare">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="brackets">
+        <span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span>
+      </div>
+      <div id="camError" class="cam-error" style="display:none;"></div>
+      <div id="shotFlash" class="shot-flash"></div>
     </div>
-    <div id="camError" class="cam-error" style="display:none;"></div>
     <div id="toast" class="toast"></div>
-    <div id="shotFlash" class="shot-flash"></div>
   </div>
 
   <div class="shutter-row">
@@ -310,6 +316,19 @@ async function loadClientId(){
 async function persistClientId(id){
   try{ await window.storage.set('driveClientId', id); }catch(e){}
 }
+
+function sizeViewfinder(){
+  const wrap = document.querySelector('.viewfinder-wrap');
+  const sq = document.getElementById('vfSquare');
+  if(!wrap || !sq) return;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  const side = Math.max(40, Math.min(w, h));
+  sq.style.width = side + 'px';
+  sq.style.height = side + 'px';
+}
+window.addEventListener('resize', sizeViewfinder);
+window.addEventListener('orientationchange', ()=> setTimeout(sizeViewfinder, 250));
 
 // ---------- camera ----------
 async function startCamera(){
@@ -546,6 +565,7 @@ function downloadReady(){
 
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
+  sizeViewfinder();
   startCamera();
   clientId = await loadClientId();
   if(!clientId){
