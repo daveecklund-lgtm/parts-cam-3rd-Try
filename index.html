@@ -308,7 +308,7 @@ function playShutterSound(){
 }
 
 function flashShotNumber(){
-  shotCount = (shotCount % 5) + 1; // cycles 1,2,3,4,5,1,2...
+  shotCount = (shotCount % 6) + 1; // cycles 1,2,3,4,5,6,1,2...
   const el = document.getElementById('shotFlash');
   el.textContent = shotCount;
   el.classList.remove('pop','small');
