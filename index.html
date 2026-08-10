@@ -373,13 +373,36 @@ async function startCamera(){
       video: { facingMode: 'environment', width:{ideal:1920}, height:{ideal:1920} },
       audio: false
     });
-    document.getElementById('video').srcObject = stream;
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    // if the browser kills this stream later (backgrounding, etc), notice and restart
+    stream.getVideoTracks().forEach(track=>{
+      track.addEventListener('ended', ()=>{ setTimeout(startCamera, 300); });
+    });
   }catch(e){
     const el = document.getElementById('camError');
     el.style.display = 'flex';
     el.textContent = 'Camera unavailable — allow camera access for this page and reload.';
   }
 }
+
+function isCameraLive(){
+  const video = document.getElementById('video');
+  const stream = video.srcObject;
+  if(!stream) return false;
+  const tracks = stream.getVideoTracks();
+  return tracks.length > 0 && tracks[0].readyState === 'live';
+}
+
+// When returning to the tab/app (foreground, unlock, etc), make sure the feed is still actually live
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && !isCameraLive()){
+    startCamera();
+  }
+});
+window.addEventListener('pageshow', ()=>{
+  if(!isCameraLive()) startCamera();
+});
 
 function newPart(){
   shotCount = 0;
@@ -628,7 +651,7 @@ window.addEventListener('load', async ()=>{
       initGoogleClient();
       const consented = await hasConsentedBefore();
       if(consented && tokenClient){
-        tokenClient.requestAccessToken({ prompt: '' }); // silent — reuses existing Google session, no popup if still valid
+        tokenClient.requestAccessToken({ prompt: 'none' }); // strictly silent — no popup at all if the session is still valid
       } else {
         document.getElementById('signInBtn').style.display = 'flex';
       }
