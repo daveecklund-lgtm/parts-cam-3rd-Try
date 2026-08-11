@@ -498,6 +498,7 @@ function initGoogleClient(){
       accessToken = resp.access_token;
       await markConsented();
       setDriveOn(true);
+      scheduleTokenRefresh();
       toast('Connected to Google Drive');
       try{
         driveFolderId = await ensureDriveFolder();
@@ -523,6 +524,22 @@ function signIn(){
   if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
   tokenClient.requestAccessToken();
 }
+
+let tokenRefreshTimer = null;
+function scheduleTokenRefresh(){
+  if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+  // Google access tokens last ~60 min — refresh well before that, silently, while the app is open
+  tokenRefreshTimer = setTimeout(()=>{
+    if(tokenClient) tokenClient.requestAccessToken({ prompt: 'none' });
+  }, 45 * 60 * 1000);
+}
+
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && tokenClient && clientId){
+    // coming back into the app — make sure the Drive session is still good, refresh quietly if not
+    tokenClient.requestAccessToken({ prompt: 'none' });
+  }
+});
 
 function setDriveOn(on){
   const pill = document.getElementById('drivePill');
