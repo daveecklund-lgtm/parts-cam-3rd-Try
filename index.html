@@ -488,9 +488,12 @@ function initGoogleClient(){
     scope: DRIVE_SCOPE,
     callback: async (resp)=>{
       if(resp.error){
-        // silent attempt failed — show the manual sign-in button instead of a dead end
+        // silent attempt failed — the token is dead, so reflect that honestly instead of leaving stale "Drive on"
+        accessToken = null;
+        setDriveOn(false);
+        if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
         if(resp.error !== 'user_logged_out' && resp.error !== 'immediate_failed'){
-          toast('Sign-in failed: ' + resp.error, true);
+          toast('Drive session expired — tap Sign in with Google', true);
         }
         document.getElementById('signInBtn').style.display = 'flex';
         return;
@@ -555,6 +558,7 @@ async function ensureDriveFolder(){
   const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
+  if(searchRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder search'); }
   const searchData = await searchRes.json();
   if(searchData.files && searchData.files.length){
     return searchData.files[0].id;
@@ -564,8 +568,15 @@ async function ensureDriveFolder(){
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
   });
+  if(createRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder create'); }
   const createData = await createRes.json();
   return createData.id;
+}
+
+function handleDriveAuthFailure(){
+  accessToken = null;
+  setDriveOn(false);
+  if(tokenClient) tokenClient.requestAccessToken({ prompt: 'none' });
 }
 
 async function uploadToDrive(item){
@@ -584,6 +595,9 @@ async function uploadToDrive(item){
   });
   if(!res.ok){
     const text = await res.text().catch(()=>'');
+    if(res.status === 401){
+      handleDriveAuthFailure();
+    }
     throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
   }
 }
