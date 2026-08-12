@@ -57,6 +57,7 @@
   }
   .viewfinder-square{
     position:relative; overflow:hidden; border-radius:14px; background:#000;
+    width:min(82vw, 48vh); height:min(82vw, 48vh);
   }
   video{width:100%;height:100%;object-fit:cover;display:block;}
   .brackets{position:absolute;inset:14px;pointer-events:none;}
@@ -185,6 +186,7 @@
     .spec-strip{ display:none; }
     .setup-panel{ grid-column:1 / -1; margin:0 12px 6px !important; }
     .viewfinder-wrap{ grid-area:viewfinder; margin:0 0 0 8px; }
+    .viewfinder-square{ width:min(60vw, 78vh); height:min(60vw, 78vh); }
     .brackets{ inset:8px; }
     .brackets span{ width:18px; height:18px; }
     .shutter-row{ grid-area:shutter; padding:0 10px; }
@@ -353,19 +355,6 @@ async function markConsented(){
   try{ await window.storage.set('driveHasConsented', 'yes'); }catch(e){}
 }
 
-function sizeViewfinder(){
-  const wrap = document.querySelector('.viewfinder-wrap');
-  const sq = document.getElementById('vfSquare');
-  if(!wrap || !sq) return;
-  const w = wrap.clientWidth;
-  const h = wrap.clientHeight;
-  const side = Math.max(40, Math.min(w, h));
-  sq.style.width = side + 'px';
-  sq.style.height = side + 'px';
-}
-window.addEventListener('resize', sizeViewfinder);
-window.addEventListener('orientationchange', ()=> setTimeout(sizeViewfinder, 250));
-
 // ---------- camera ----------
 async function startCamera(){
   try{
@@ -438,29 +427,32 @@ function capturePhoto(){
 async function processQueue(){
   if(processing) return;
   processing = true;
-  for(const item of queue){
-    if(item.status !== 'queued') continue;
-    item.status = 'processing';
-    renderStrip(); updateCounts();
-    try{
-      const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
-      item.jpgBlob = jpgBlob;
-      if(accessToken){
-        await uploadToDrive(item);
-        item.status = 'uploaded';
-        setTimeout(()=>removeItem(item.id), 900);
-      } else {
-        item.status = 'ready';
+  try{
+    for(const item of queue){
+      if(item.status !== 'queued') continue;
+      item.status = 'processing';
+      renderStrip(); updateCounts();
+      try{
+        const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
+        item.jpgBlob = jpgBlob;
+        if(accessToken){
+          await uploadToDrive(item);
+          item.status = 'uploaded';
+          setTimeout(()=>removeItem(item.id), 900);
+        } else {
+          item.status = 'ready';
+        }
+      }catch(e){
+        console.error(e);
+        item.status = 'error';
+        item.errorMsg = (e && e.name === 'AbortError') ? 'Timed out — check connection' : (e.message || 'Failed');
+        toast('Processing failed: ' + item.errorMsg, true);
       }
-    }catch(e){
-      console.error(e);
-      item.status = 'error';
-      item.errorMsg = e.message || 'Failed';
-      toast('Processing failed: ' + item.errorMsg, true);
+      renderStrip(); updateCounts();
     }
-    renderStrip(); updateCounts();
+  } finally {
+    processing = false;
   }
-  processing = false;
 }
 
 // ---------- Google Sign-In ----------
@@ -553,9 +545,15 @@ function setDriveOn(on){
 }
 
 // ---------- Drive upload ----------
+function fetchWithTimeout(url, options, timeoutMs = 25000){
+  const controller = new AbortController();
+  const timer = setTimeout(()=> controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(()=> clearTimeout(timer));
+}
+
 async function ensureDriveFolder(){
   const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+  const searchRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   if(searchRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder search'); }
@@ -563,7 +561,7 @@ async function ensureDriveFolder(){
   if(searchData.files && searchData.files.length){
     return searchData.files[0].id;
   }
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetchWithTimeout('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
@@ -588,11 +586,11 @@ async function uploadToDrive(item){
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
   form.append('file', item.jpgBlob);
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+  const res = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form
-  });
+  }, 45000);
   if(!res.ok){
     const text = await res.text().catch(()=>'');
     if(res.status === 401){
@@ -668,7 +666,6 @@ function downloadReady(){
 
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
-  sizeViewfinder();
   startCamera();
   clientId = await loadClientId();
   if(!clientId){
