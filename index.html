@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Parts Cam</title>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -187,9 +186,10 @@
   </div>
 
   <div id="setupPanel" class="setup-panel" style="display:none; margin:0 16px 10px;">
-    <p>Direct-to-Drive upload needs a Google OAuth Client ID from your own Google Cloud project (Drive API enabled, this page's address added as an Authorized JavaScript origin). This page's address: <span id="originText" style="color:var(--text);"></span></p>
-    <input type="text" id="clientIdInput" placeholder="Paste your OAuth Client ID">
-    <button class="btn btn-primary" onclick="saveClientId()" style="width:100%;">Save & Connect Drive</button>
+    <p>Paste in your token server's address and shared secret (from your Render deployment). One-time setup — after this, Drive stays connected permanently.</p>
+    <input type="text" id="backendUrlInput" placeholder="https://your-app.onrender.com">
+    <input type="text" id="appSecretInput" placeholder="App shared secret">
+    <button class="btn btn-primary" onclick="saveBackendConfig()" style="width:100%;">Save & Connect Drive</button>
   </div>
 
   <div class="viewfinder-wrap">
@@ -224,9 +224,8 @@
   <div class="strip" id="strip"></div>
 
   <footer>
-    <button class="btn btn-google" id="signInBtn" onclick="signIn()" style="display:none;">
-      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v9h11.8c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.09c4.15-3.82 6.62-9.45 6.62-16.66z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.34l-7.09-5.52c-1.97 1.32-4.5 2.1-7.47 2.1-5.74 0-10.6-3.87-12.34-9.06H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.66 28.18c-.44-1.32-.68-2.72-.68-4.18s.24-2.86.68-4.18v-5.7H4.34C2.85 16.97 2 20.36 2 24s.85 7.03 2.34 9.88l7.32-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.32 5.7c1.74-5.19 6.6-9.07 12.34-9.07z"/></svg>
-      Sign in with Google
+    <button class="btn btn-google" id="signInBtn" onclick="fetchAccessToken()" style="display:none;">
+      Reconnect Drive
     </button>
     <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="display:none;">Upload All to Drive</button>
     <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()">Download processed JPGs</button>
@@ -240,14 +239,12 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.googleusercontent.com";
 
 let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
 let idCounter = 0;
 let shotCount = 0;       // cycles 1-5 per part, resets automatically
-let clientId = null;
-let tokenClient = null;
+let backendUrl = null;
+let appSecret = null;
 let accessToken = null;
 let driveFolderId = null;
 let processing = false;
@@ -295,25 +292,22 @@ function toast(msg, isError){
   window._toastTimer = setTimeout(()=>{ t.className='toast'; }, 3200);
 }
 
-// ---------- storage: remember client id across sessions ----------
-async function loadClientId(){
+// ---------- storage: remember backend config across sessions ----------
+async function loadBackendConfig(){
   try{
-    const res = await window.storage.get('driveClientId');
-    if(res && res.value) return res.value;
+    const url = await window.storage.get('driveBackendUrl');
+    const secret = await window.storage.get('driveAppSecret');
+    return {
+      url: (url && url.value) || null,
+      secret: (secret && secret.value) || null
+    };
+  }catch(e){ return { url:null, secret:null }; }
+}
+async function persistBackendConfig(url, secret){
+  try{
+    await window.storage.set('driveBackendUrl', url);
+    await window.storage.set('driveAppSecret', secret);
   }catch(e){}
-  return null;
-}
-async function persistClientId(id){
-  try{ await window.storage.set('driveClientId', id); }catch(e){}
-}
-async function hasConsentedBefore(){
-  try{
-    const res = await window.storage.get('driveHasConsented');
-    return !!(res && res.value === 'yes');
-  }catch(e){ return false; }
-}
-async function markConsented(){
-  try{ await window.storage.set('driveHasConsented', 'yes'); }catch(e){}
 }
 
 // ---------- camera ----------
@@ -416,84 +410,84 @@ async function processQueue(){
   }
 }
 
-// ---------- Google Sign-In ----------
+// ---------- Drive auth (via your own backend, no browser popups needed) ----------
 function toggleSetup(){
   const p = document.getElementById('setupPanel');
-  document.getElementById('originText').textContent = window.location.origin || window.location.href;
   p.style.display = (p.style.display === 'none') ? 'block' : 'none';
 }
 
-async function saveClientId(){
-  const val = document.getElementById('clientIdInput').value.trim();
-  if(!val){ toast('Paste a Client ID first', true); return; }
-  clientId = val;
-  await persistClientId(val);
+async function saveBackendConfig(){
+  const url = document.getElementById('backendUrlInput').value.trim().replace(/\/$/, '');
+  const secret = document.getElementById('appSecretInput').value.trim();
+  if(!url || !secret){ toast('Enter both the backend URL and secret', true); return; }
+  backendUrl = url;
+  appSecret = secret;
+  await persistBackendConfig(url, secret);
   document.getElementById('setupPanel').style.display = 'none';
-  document.getElementById('signInBtn').style.display = 'flex';
-  toast('Client ID saved. Tap "Sign in with Google" to connect.');
-  initGoogleClient();
+  toast('Saved — connecting to Drive...');
+  fetchAccessToken();
 }
 
-function initGoogleClient(){
-  if(!window.google || !clientId) return;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: DRIVE_SCOPE,
-    callback: async (resp)=>{
-      if(resp.error){
-        // silent attempt failed — the token is dead, so reflect that honestly instead of leaving stale "Drive on"
-        accessToken = null;
-        setDriveOn(false);
-        if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
-        if(resp.error !== 'user_logged_out' && resp.error !== 'immediate_failed'){
-          toast('Drive session expired — tap Sign in with Google', true);
-        }
-        document.getElementById('signInBtn').style.display = 'flex';
-        return;
+async function fetchAccessToken(){
+  if(!backendUrl || !appSecret){
+    document.getElementById('signInBtn').style.display = 'flex';
+    return;
+  }
+  try{
+    const res = await fetchWithTimeout(backendUrl + '/token', {
+      headers: { 'x-app-secret': appSecret }
+    }, 15000);
+    const data = await res.json();
+    if(!res.ok || !data.access_token){
+      accessToken = null;
+      setDriveOn(false);
+      if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+      document.getElementById('signInBtn').style.display = 'flex';
+      if(data.error === 'not_connected'){
+        toast('Drive not connected yet — visit ' + backendUrl + '/auth/start once in a browser', true);
+      } else {
+        toast('Could not reach token server: ' + (data.error || res.status), true);
       }
-      accessToken = resp.access_token;
-      await markConsented();
-      setDriveOn(true);
-      scheduleTokenRefresh();
-      toast('Connected to Google Drive');
-      try{
-        driveFolderId = await ensureDriveFolder();
-      }catch(e){
-        toast('Could not access Drive folder: ' + e.message, true);
-      }
-      // flush any photos already processed while signed out
-      for(const item of queue){
-        if(item.status === 'ready'){
-          try{
-            await uploadToDrive(item);
-            item.status = 'uploaded';
-            setTimeout(()=>removeItem(item.id), 900);
-          }catch(e){ item.status='error'; item.errorMsg = e.message; }
-        }
-      }
-      renderStrip(); updateCounts();
+      return;
     }
-  });
-}
-
-function signIn(){
-  if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
-  tokenClient.requestAccessToken();
+    accessToken = data.access_token;
+    setDriveOn(true);
+    scheduleTokenRefresh();
+    try{
+      driveFolderId = await ensureDriveFolder();
+    }catch(e){
+      toast('Could not access Drive folder: ' + e.message, true);
+    }
+    // flush any photos already processed while disconnected
+    for(const item of queue){
+      if(item.status === 'ready'){
+        try{
+          await uploadToDrive(item);
+          item.status = 'uploaded';
+          setTimeout(()=>removeItem(item.id), 900);
+        }catch(e){ item.status='error'; item.errorMsg = e.message; }
+      }
+    }
+    renderStrip(); updateCounts();
+  }catch(e){
+    accessToken = null;
+    setDriveOn(false);
+    document.getElementById('signInBtn').style.display = 'flex';
+    toast('Could not reach token server: ' + e.message, true);
+  }
 }
 
 let tokenRefreshTimer = null;
 function scheduleTokenRefresh(){
   if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
-  // Google access tokens last ~60 min — refresh well before that, silently, while the app is open
-  tokenRefreshTimer = setTimeout(()=>{
-    if(tokenClient) tokenClient.requestAccessToken({ prompt: 'none' });
-  }, 45 * 60 * 1000);
+  // Google access tokens last ~60 min — refresh well before that, automatically, while the app is open
+  tokenRefreshTimer = setTimeout(fetchAccessToken, 45 * 60 * 1000);
 }
 
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible' && tokenClient && clientId){
-    // coming back into the app — make sure the Drive session is still good, refresh quietly if not
-    tokenClient.requestAccessToken({ prompt: 'none' });
+  if(document.visibilityState === 'visible' && backendUrl && appSecret){
+    // coming back into the app — make sure the Drive session is still good
+    fetchAccessToken();
   }
 });
 
@@ -501,7 +495,7 @@ function setDriveOn(on){
   const pill = document.getElementById('drivePill');
   document.getElementById('drivePillText').textContent = on ? 'Drive on' : 'Drive off';
   pill.className = 'drive-pill' + (on ? ' on' : '');
-  document.getElementById('signInBtn').style.display = on ? 'none' : (clientId ? 'flex' : 'none');
+  document.getElementById('signInBtn').style.display = on ? 'none' : (backendUrl ? 'flex' : 'none');
   document.getElementById('uploadAllBtn').style.display = on ? 'block' : 'none';
 }
 
@@ -535,7 +529,7 @@ async function ensureDriveFolder(){
 function handleDriveAuthFailure(){
   accessToken = null;
   setDriveOn(false);
-  if(tokenClient) tokenClient.requestAccessToken({ prompt: 'none' });
+  fetchAccessToken(); // try to recover via the backend for the next attempt
 }
 
 async function uploadToDrive(item){
@@ -628,24 +622,16 @@ function downloadReady(){
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
   startCamera();
-  clientId = await loadClientId();
-  if(!clientId){
-    clientId = DEFAULT_CLIENT_ID;
-    await persistClientId(clientId);
+  const cfg = await loadBackendConfig();
+  backendUrl = cfg.url;
+  appSecret = cfg.secret;
+  if(backendUrl) document.getElementById('backendUrlInput').value = backendUrl;
+  if(appSecret) document.getElementById('appSecretInput').value = appSecret;
+  if(backendUrl && appSecret){
+    fetchAccessToken();
+  } else {
+    document.getElementById('signInBtn').style.display = 'flex';
   }
-  document.getElementById('clientIdInput').value = clientId;
-  const check = setInterval(async ()=>{
-    if(window.google){
-      clearInterval(check);
-      initGoogleClient();
-      const consented = await hasConsentedBefore();
-      if(consented && tokenClient){
-        tokenClient.requestAccessToken({ prompt: 'none' }); // strictly silent — no popup at all if the session is still valid
-      } else {
-        document.getElementById('signInBtn').style.display = 'flex';
-      }
-    }
-  }, 200);
   updateCounts();
 });
 </script>
