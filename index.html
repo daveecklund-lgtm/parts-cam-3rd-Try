@@ -297,21 +297,20 @@ function toast(msg, isError){
 }
 
 // ---------- storage: remember backend config across sessions ----------
-async function loadBackendConfig(){
+function loadBackendConfig(){
   try{
-    const url = await window.storage.get('driveBackendUrl');
-    const secret = await window.storage.get('driveAppSecret');
     return {
-      url: (url && url.value) || null,
-      secret: (secret && secret.value) || null
+      url: localStorage.getItem('driveBackendUrl') || null,
+      secret: localStorage.getItem('driveAppSecret') || null
     };
   }catch(e){ return { url:null, secret:null }; }
 }
-async function persistBackendConfig(url, secret){
+function persistBackendConfig(url, secret){
   try{
-    await window.storage.set('driveBackendUrl', url);
-    await window.storage.set('driveAppSecret', secret);
-  }catch(e){}
+    localStorage.setItem('driveBackendUrl', url);
+    localStorage.setItem('driveAppSecret', secret);
+    return true;
+  }catch(e){ return false; }
 }
 
 // ---------- camera ----------
@@ -427,9 +426,11 @@ async function saveBackendConfig(){
   if(!url || !secret){ toast('Enter both the backend URL and secret', true); return; }
   backendUrl = url;
   appSecret = secret;
-  await persistBackendConfig(url, secret);
+  const saved = persistBackendConfig(url, secret);
   document.getElementById('setupPanel').style.display = 'none';
-  toast('Saved — connecting to Drive...');
+  if(!saved){
+    toast('Connecting, but settings could not be saved for next time', true);
+  }
   fetchAccessToken();
 }
 
@@ -439,9 +440,10 @@ async function fetchAccessToken(){
     return;
   }
   try{
+    toast('Connecting to Drive (server may take a moment to wake)...');
     const res = await fetchWithTimeout(backendUrl + '/token', {
       headers: { 'x-app-secret': appSecret }
-    }, 15000);
+    }, 60000); // Render free tier can take ~50s to wake from sleep
     const data = await res.json();
     if(!res.ok || !data.access_token){
       accessToken = null;
@@ -506,9 +508,11 @@ function setDriveOn(on){
 
 // ---------- Drive upload ----------
 function fetchWithTimeout(url, options, timeoutMs = 25000){
-  const controller = new AbortController();
-  const timer = setTimeout(()=> controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(()=> clearTimeout(timer));
+  // Deliberately avoids AbortSignal — some environments can't serialize it across frames
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject)=> setTimeout(()=> reject(new Error('Timed out — check connection')), timeoutMs))
+  ]);
 }
 
 async function ensureDriveFolder(){
@@ -627,7 +631,7 @@ function downloadReady(){
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
   startCamera();
-  const cfg = await loadBackendConfig();
+  const cfg = loadBackendConfig();
   backendUrl = cfg.url;
   appSecret = cfg.secret;
   if(backendUrl) document.getElementById('backendUrlInput').value = backendUrl;
