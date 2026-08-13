@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Parts Cam</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -56,8 +57,6 @@
   }
   .viewfinder-square{
     position:relative; overflow:hidden; border-radius:14px; background:#000;
-    width:min(82%, 360px); aspect-ratio:1 / 1;
-    flex-shrink:0;
   }
   video{width:100%;height:100%;object-fit:cover;display:block;}
   .brackets{position:absolute;inset:14px;pointer-events:none;}
@@ -74,7 +73,7 @@
     box-shadow:0 1px 4px rgba(0,0,0,0.4);
   }
 
-  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;height:108px;box-sizing:border-box;}
+  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;}
   .shutter{
     width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
     box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
@@ -127,10 +126,7 @@
   .btn-google{background:#fff;color:#333;display:flex;align-items:center;justify-content:center;gap:8px;}
 
   .setup-panel{
-    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:calc(100% - 32px); max-width:420px;
-    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
-    z-index:100; box-shadow:0 8px 32px rgba(0,0,0,0.7);
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:2px;
   }
   .setup-panel p{font-size:11.5px;color:var(--text-dim);line-height:1.5;margin:0 0 8px;}
   .setup-panel input{
@@ -164,6 +160,72 @@
   }
 
   ::-webkit-scrollbar{display:none;}
+
+  /* ---- Mode toggle (Parts / Locations) ---- */
+  .mode-seg{ display:flex; gap:6px; margin:0 16px 10px; flex-shrink:0; }
+  .mode-btn{
+    flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.05em;
+    text-transform:uppercase; padding:8px 6px; border-radius:8px; cursor:pointer;
+    background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+  }
+  .mode-btn.active{ background:var(--orange); border-color:var(--orange); color:#1c1d1f; font-weight:600; }
+
+  /* ---- Location step strip (2-shot guide) ---- */
+  .loc-steps{ display:flex; gap:8px; margin:0 16px 10px; flex-shrink:0; align-items:stretch; }
+  .loc-step{
+    flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel);
+    display:flex; align-items:center; gap:8px;
+  }
+  .loc-step .n{
+    width:20px; height:20px; border-radius:50%; background:var(--panel-alt); color:var(--text-dim);
+    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .loc-step .t{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); letter-spacing:0.03em; line-height:1.2; }
+  .loc-step.active{ border-color:var(--orange); background:rgba(255,106,26,0.10); }
+  .loc-step.active .n{ background:var(--orange); color:#1c1d1f; }
+  .loc-step.active .t{ color:var(--text); }
+  .loc-step.done .n{ background:var(--success); color:#0e2413; }
+  .loc-count{ margin:0 16px 10px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-align:center; }
+  .loc-count b{ color:var(--success); }
+
+  /* ---- Landscape mode: compact all chrome so the viewfinder stays fully visible ---- */
+  @media (orientation: landscape) and (max-height: 550px){
+    #app{
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+      max-width: none;
+      display:grid;
+      grid-template-columns: 1fr 88px;
+      grid-template-rows: auto auto 1fr auto auto;
+      grid-template-areas:
+        "header header"
+        "tally tally"
+        "viewfinder shutter"
+        "strip strip"
+        "footer footer";
+      height:100vh;
+    }
+    header{ grid-area:header; padding:6px 12px 4px; }
+    .brand small{ display:none; }
+    .brand h1{ font-size:15px; }
+    .drive-pill{ padding:3px 8px; font-size:9px; }
+    .spec-strip{ display:none; }
+    .setup-panel{ grid-column:1 / -1; margin:0 12px 6px !important; }
+    .viewfinder-wrap{ grid-area:viewfinder; margin:0 0 0 8px; }
+    .brackets{ inset:8px; }
+    .brackets span{ width:18px; height:18px; }
+    .shutter-row{ grid-area:shutter; padding:0 10px; }
+    .shutter{ width:52px; height:52px; }
+    .shutter svg{ width:18px; height:18px; }
+    .tally{ grid-area:tally; padding:5px 10px; margin:0 8px; }
+    .tally .item{ font-size:10px; }
+    .tally .item b{ font-size:11px; }
+    .strip{ grid-area:strip; padding:6px 12px; min-height:54px; }
+    .thumb{ width:42px; height:42px; }
+    footer{ grid-area:footer; padding:6px 12px 10px; flex-direction:row; gap:6px; }
+    footer .btn{ padding:8px; font-size:11.5px; flex:1; }
+  }
 </style>
 </head>
 <body>
@@ -183,18 +245,27 @@
     </div>
   </header>
 
-  <div class="spec-strip">
+  <div class="mode-seg" id="modeSeg">
+    <button class="mode-btn active" data-mode="parts" onclick="setMode('parts')">Parts</button>
+    <button class="mode-btn" data-mode="locations" onclick="setMode('locations')">Locations</button>
+  </div>
+
+  <div class="loc-steps" id="locSteps" style="display:none;">
+    <div class="loc-step" id="locStep0"><div class="n">1</div><div class="t">PART&nbsp;#<br>label photo</div></div>
+    <div class="loc-step" id="locStep1"><div class="n">2</div><div class="t">SHELF<br>location photo</div></div>
+  </div>
+  <div class="loc-count" id="locCount" style="display:none;">Pairs uploaded this session: <b id="locDone">0</b></div>
+
+  <div class="spec-strip" id="specStrip">
     <div class="spec"><div class="k">BG</div><div class="v">Skipped</div></div>
     <div class="spec"><div class="k">Edit</div><div class="v">Photoroom app</div></div>
     <div class="spec"><div class="k">Out</div><div class="v">Raw JPG</div></div>
   </div>
 
-  <div id="setupPanel" class="setup-panel" style="display:none;">
-    <p>Paste in your token server's address and shared secret (from your Render deployment). One-time setup — after this, Drive stays connected permanently.</p>
-    <input type="text" id="backendUrlInput" placeholder="https://your-app.onrender.com" autocapitalize="off" autocorrect="off" spellcheck="false">
-    <input type="text" id="appSecretInput" placeholder="App shared secret" autocapitalize="off" autocorrect="off" spellcheck="false">
-    <button class="btn btn-primary" onclick="saveBackendConfig()" style="width:100%;">Save & Connect Drive</button>
-    <button class="btn btn-secondary" onclick="toggleSetup()" style="width:100%; margin-top:6px;">Cancel</button>
+  <div id="setupPanel" class="setup-panel" style="display:none; margin:0 16px 10px;">
+    <p>Direct-to-Drive upload needs a Google OAuth Client ID from your own Google Cloud project (Drive API enabled, this page's address added as an Authorized JavaScript origin). This page's address: <span id="originText" style="color:var(--text);"></span></p>
+    <input type="text" id="clientIdInput" placeholder="Paste your OAuth Client ID">
+    <button class="btn btn-primary" onclick="saveClientId()" style="width:100%;">Save & Connect Drive</button>
   </div>
 
   <div class="viewfinder-wrap">
@@ -229,8 +300,9 @@
   <div class="strip" id="strip"></div>
 
   <footer>
-    <button class="btn btn-google" id="signInBtn" onclick="fetchAccessToken()" style="display:none;">
-      Reconnect Drive
+    <button class="btn btn-google" id="signInBtn" onclick="signIn()" style="display:none;">
+      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v9h11.8c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.09c4.15-3.82 6.62-9.45 6.62-16.66z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.34l-7.09-5.52c-1.97 1.32-4.5 2.1-7.47 2.1-5.74 0-10.6-3.87-12.34-9.06H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.66 28.18c-.44-1.32-.68-2.72-.68-4.18s.24-2.86.68-4.18v-5.7H4.34C2.85 16.97 2 20.36 2 24s.85 7.03 2.34 9.88l7.32-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.32 5.7c1.74-5.19 6.6-9.07 12.34-9.07z"/></svg>
+      Sign in with Google
     </button>
     <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="display:none;">Upload All to Drive</button>
     <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()">Download processed JPGs</button>
@@ -244,14 +316,22 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
+const LOCATION_FOLDER_NAME = "Location Updates";   // subfolder of Ford Parts Photos; read by the Ford Lister desktop tool
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.googleusercontent.com";
 
 let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
 let idCounter = 0;
 let shotCount = 0;       // cycles 1-5 per part, resets automatically
-let backendUrl = null;
-let appSecret = null;
+let clientId = null;
+let tokenClient = null;
 let accessToken = null;
 let driveFolderId = null;
+let locationFolderId = null;
+let mode = 'parts';       // 'parts' | 'locations'
+let locStep = 0;          // locations mode: 0 = expecting PART # photo, 1 = expecting SHELF photo
+let locGroupId = null;    // shared id that pairs a part photo with its shelf photo
+let locDoneCount = 0;     // completed location pairs this session
 let processing = false;
 let audioCtx = null;
 
@@ -297,22 +377,39 @@ function toast(msg, isError){
   window._toastTimer = setTimeout(()=>{ t.className='toast'; }, 3200);
 }
 
-// ---------- storage: remember backend config across sessions ----------
-function loadBackendConfig(){
+// ---------- storage: remember client id across sessions ----------
+async function loadClientId(){
   try{
-    return {
-      url: localStorage.getItem('driveBackendUrl') || null,
-      secret: localStorage.getItem('driveAppSecret') || null
-    };
-  }catch(e){ return { url:null, secret:null }; }
+    const res = await window.storage.get('driveClientId');
+    if(res && res.value) return res.value;
+  }catch(e){}
+  return null;
 }
-function persistBackendConfig(url, secret){
+async function persistClientId(id){
+  try{ await window.storage.set('driveClientId', id); }catch(e){}
+}
+async function hasConsentedBefore(){
   try{
-    localStorage.setItem('driveBackendUrl', url);
-    localStorage.setItem('driveAppSecret', secret);
-    return true;
+    const res = await window.storage.get('driveHasConsented');
+    return !!(res && res.value === 'yes');
   }catch(e){ return false; }
 }
+async function markConsented(){
+  try{ await window.storage.set('driveHasConsented', 'yes'); }catch(e){}
+}
+
+function sizeViewfinder(){
+  const wrap = document.querySelector('.viewfinder-wrap');
+  const sq = document.getElementById('vfSquare');
+  if(!wrap || !sq) return;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  const side = Math.max(40, Math.min(w, h));
+  sq.style.width = side + 'px';
+  sq.style.height = side + 'px';
+}
+window.addEventListener('resize', sizeViewfinder);
+window.addEventListener('orientationchange', ()=> setTimeout(sizeViewfinder, 250));
 
 // ---------- camera ----------
 async function startCamera(){
@@ -321,12 +418,7 @@ async function startCamera(){
       video: { facingMode: 'environment', width:{ideal:1920}, height:{ideal:1920} },
       audio: false
     });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
-    // if the browser kills this stream later (backgrounding, etc), notice and restart
-    stream.getVideoTracks().forEach(track=>{
-      track.addEventListener('ended', ()=>{ setTimeout(startCamera, 300); });
-    });
+    document.getElementById('video').srcObject = stream;
   }catch(e){
     const el = document.getElementById('camError');
     el.style.display = 'flex';
@@ -334,25 +426,14 @@ async function startCamera(){
   }
 }
 
-function isCameraLive(){
-  const video = document.getElementById('video');
-  const stream = video.srcObject;
-  if(!stream) return false;
-  const tracks = stream.getVideoTracks();
-  return tracks.length > 0 && tracks[0].readyState === 'live';
-}
-
-// When returning to the tab/app (foreground, unlock, etc), make sure the feed is still actually live
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible' && !isCameraLive()){
-    startCamera();
-  }
-});
-window.addEventListener('pageshow', ()=>{
-  if(!isCameraLive()) startCamera();
-});
-
 function newPart(){
+  if(mode === 'locations'){
+    locStep = 0; locGroupId = null;
+    updateLocStepUI();
+    flashLoc('RESET');
+    toast('Pair reset — next shot is the PART #');
+    return;
+  }
   shotCount = 0;
   const el = document.getElementById('shotFlash');
   el.textContent = 'NEW PART';
@@ -363,234 +444,247 @@ function newPart(){
   toast('Counter reset — next photo starts at 1');
 }
 
-// How far the screen is rotated from portrait, in degrees.
-function getScreenAngle(){
-  if(screen.orientation && typeof screen.orientation.angle === 'number'){
-    return screen.orientation.angle;
+// ---------- mode: Parts vs Locations ----------
+function setMode(m){
+  mode = m;
+  locStep = 0; locGroupId = null;
+  document.querySelectorAll('.mode-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.mode === m);
+  });
+  const loc = (m === 'locations');
+  document.getElementById('specStrip').style.display = loc ? 'none' : 'flex';
+  document.getElementById('locSteps').style.display  = loc ? 'flex' : 'none';
+  document.getElementById('locCount').style.display  = loc ? 'block' : 'none';
+  document.querySelector('.brand small').textContent = loc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE';
+  updateLocStepUI();
+  sizeViewfinder();
+}
+
+function updateLocStepUI(){
+  const s0 = document.getElementById('locStep0');
+  const s1 = document.getElementById('locStep1');
+  if(s0 && s1){
+    s0.className = 'loc-step' + (locStep === 0 ? ' active' : ' done');
+    s1.className = 'loc-step' + (locStep === 1 ? ' active' : '');
   }
-  if(typeof window.orientation === 'number') return window.orientation;
-  return 0;
+  const ti = document.getElementById('topIndicator');
+  if(ti){
+    if(mode === 'locations'){ ti.innerHTML = (locStep === 0) ? '▲ PART&nbsp;#' : '▲ SHELF'; }
+    else { ti.innerHTML = '▲ TOP'; }
+  }
+}
+
+function flashLoc(text){
+  const el = document.getElementById('shotFlash');
+  el.textContent = text;
+  el.classList.remove('pop');
+  el.classList.add('small');
+  void el.offsetWidth;
+  el.classList.add('pop');
 }
 
 function capturePhoto(){
   const video = document.getElementById('video');
   if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
   playShutterSound();
-  flashShotNumber();
-
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const angle = getScreenAngle();
-  // Rotate the saved image so it matches what you saw on screen, rather than
-  // the raw sensor frame (which ignores how the browser rotated the display).
-  const rotation = (angle === 90) ? -90 : (angle === 270 || angle === -90) ? 90 : 0;
-
   const canvas = document.createElement('canvas');
-  if(rotation === 0){
-    canvas.width = vw;
-    canvas.height = vh;
-  } else {
-    canvas.width = vh;   // swap dimensions for a quarter turn
-    canvas.height = vw;
-  }
-  const ctx = canvas.getContext('2d');
-  if(rotation === 0){
-    ctx.drawImage(video, 0, 0);
-  } else {
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(rotation * Math.PI / 180);
-    ctx.drawImage(video, -vw / 2, -vh / 2);
-  }
-
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
   canvas.toBlob((blob)=>{
-    const id = ++idCounter;
-    const thumbUrl = URL.createObjectURL(blob);
-    queue.push({ id, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
-    renderStrip();
-    updateCounts();
-    processQueue();
+    if(mode === 'locations'){ handleLocationShot(blob); }
+    else { handlePartShot(blob); }
   }, 'image/jpeg', 0.9);
+}
+
+function handlePartShot(blob){
+  flashShotNumber();
+  const id = ++idCounter;
+  const thumbUrl = URL.createObjectURL(blob);
+  queue.push({ id, status:'queued', mode:'parts', rawBlob: blob, jpgBlob:null, thumbUrl });
+  renderStrip();
+  updateCounts();
+  processQueue();
+}
+
+function handleLocationShot(blob){
+  const thumbUrl = URL.createObjectURL(blob);
+  const id = ++idCounter;
+  if(locStep === 0){
+    // first shot of a pair = the PART NUMBER label
+    locGroupId = Date.now();
+    queue.push({ id, status:'queued', mode:'locations', kind:'part', groupId:locGroupId, rawBlob:blob, jpgBlob:null, thumbUrl });
+    locStep = 1;
+    flashLoc('PART ✓');
+    updateLocStepUI();
+    renderStrip(); updateCounts(); processQueue();
+  } else {
+    // second shot = the SHELF; completes the pair
+    queue.push({ id, status:'queued', mode:'locations', kind:'shelf', groupId:locGroupId, rawBlob:blob, jpgBlob:null, thumbUrl });
+    locDoneCount++;
+    document.getElementById('locDone').textContent = locDoneCount;
+    locStep = 0; locGroupId = null;
+    flashLoc('SHELF ✓');
+    updateLocStepUI();
+    renderStrip(); updateCounts(); processQueue();
+    toast(accessToken ? 'Location pair uploading to Drive' : 'Pair saved — sign in to upload');
+  }
 }
 
 // ---------- Photoroom processing ----------
 async function processQueue(){
   if(processing) return;
   processing = true;
-  try{
-    for(const item of queue){
-      if(item.status !== 'queued') continue;
-      item.status = 'processing';
-      renderStrip(); updateCounts();
-      try{
-        const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
-        item.jpgBlob = jpgBlob;
-        if(accessToken){
-          await uploadToDrive(item);
-          item.status = 'uploaded';
-          setTimeout(()=>removeItem(item.id), 900);
-        } else {
-          item.status = 'ready';
-        }
-      }catch(e){
-        console.error(e);
-        item.status = 'error';
-        item.errorMsg = (e && e.name === 'AbortError') ? 'Timed out — check connection' : (e.message || 'Failed');
-        toast('Processing failed: ' + item.errorMsg, true);
-      }
-      renderStrip(); updateCounts();
-    }
-  } finally {
-    processing = false;
-  }
-}
-
-// ---------- Drive auth (via your own backend, no browser popups needed) ----------
-function toggleSetup(){
-  const p = document.getElementById('setupPanel');
-  const isHidden = window.getComputedStyle(p).display === 'none';
-  p.style.display = isHidden ? 'block' : 'none';
-}
-
-async function saveBackendConfig(){
-  const url = document.getElementById('backendUrlInput').value.trim().replace(/\/$/, '');
-  const secret = document.getElementById('appSecretInput').value.trim();
-  if(!url || !secret){ toast('Enter both the backend URL and secret', true); return; }
-  backendUrl = url;
-  appSecret = secret;
-  const saved = persistBackendConfig(url, secret);
-  document.getElementById('setupPanel').style.display = 'none';
-  if(!saved){
-    toast('Connecting, but settings could not be saved for next time', true);
-  }
-  fetchAccessToken();
-}
-
-async function fetchAccessToken(){
-  if(!backendUrl || !appSecret){
-    document.getElementById('signInBtn').style.display = 'flex';
-    return;
-  }
-  try{
-    toast('Connecting to Drive (server may take a moment to wake)...');
-    const res = await fetchWithTimeout(backendUrl + '/token', {
-      headers: { 'x-app-secret': appSecret }
-    }, 60000); // Render free tier can take ~50s to wake from sleep
-    const data = await res.json();
-    if(!res.ok || !data.access_token){
-      accessToken = null;
-      setDriveOn(false);
-      if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
-      document.getElementById('signInBtn').style.display = 'flex';
-      if(data.error === 'not_connected'){
-        toast('Drive not connected yet — visit ' + backendUrl + '/auth/start once in a browser', true);
-      } else {
-        toast('Could not reach token server: ' + (data.error || res.status), true);
-      }
-      return;
-    }
-    accessToken = data.access_token;
-    setDriveOn(true);
-    scheduleTokenRefresh();
+  for(const item of queue){
+    if(item.status !== 'queued') continue;
+    item.status = 'processing';
+    renderStrip(); updateCounts();
     try{
-      driveFolderId = await ensureDriveFolder();
-    }catch(e){
-      toast('Could not access Drive folder: ' + e.message, true);
-    }
-    // flush any photos already processed while disconnected
-    for(const item of queue){
-      if(item.status === 'ready'){
-        try{
-          await uploadToDrive(item);
-          item.status = 'uploaded';
-          setTimeout(()=>removeItem(item.id), 900);
-        }catch(e){ item.status='error'; item.errorMsg = e.message; }
+      const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
+      item.jpgBlob = jpgBlob;
+      if(accessToken){
+        await uploadToDrive(item);
+        item.status = 'uploaded';
+        setTimeout(()=>removeItem(item.id), 900);
+      } else {
+        item.status = 'ready';
       }
+    }catch(e){
+      console.error(e);
+      item.status = 'error';
+      item.errorMsg = e.message || 'Failed';
+      toast('Processing failed: ' + item.errorMsg, true);
     }
     renderStrip(); updateCounts();
-  }catch(e){
-    accessToken = null;
-    setDriveOn(false);
-    document.getElementById('signInBtn').style.display = 'flex';
-    toast('Could not reach token server: ' + e.message, true);
   }
+  processing = false;
 }
 
-let tokenRefreshTimer = null;
-function scheduleTokenRefresh(){
-  if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
-  // Google access tokens last ~60 min — refresh well before that, automatically, while the app is open
-  tokenRefreshTimer = setTimeout(fetchAccessToken, 45 * 60 * 1000);
+// ---------- Google Sign-In ----------
+function toggleSetup(){
+  const p = document.getElementById('setupPanel');
+  document.getElementById('originText').textContent = window.location.origin || window.location.href;
+  p.style.display = (p.style.display === 'none') ? 'block' : 'none';
 }
 
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible' && backendUrl && appSecret){
-    // coming back into the app — make sure the Drive session is still good
-    fetchAccessToken();
-  }
-});
+async function saveClientId(){
+  const val = document.getElementById('clientIdInput').value.trim();
+  if(!val){ toast('Paste a Client ID first', true); return; }
+  clientId = val;
+  await persistClientId(val);
+  document.getElementById('setupPanel').style.display = 'none';
+  document.getElementById('signInBtn').style.display = 'flex';
+  toast('Client ID saved. Tap "Sign in with Google" to connect.');
+  initGoogleClient();
+}
+
+function initGoogleClient(){
+  if(!window.google || !clientId) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: DRIVE_SCOPE,
+    callback: async (resp)=>{
+      if(resp.error){
+        // silent attempt failed — show the manual sign-in button instead of a dead end
+        if(resp.error !== 'user_logged_out' && resp.error !== 'immediate_failed'){
+          toast('Sign-in failed: ' + resp.error, true);
+        }
+        document.getElementById('signInBtn').style.display = 'flex';
+        return;
+      }
+      accessToken = resp.access_token;
+      await markConsented();
+      setDriveOn(true);
+      toast('Connected to Google Drive');
+      try{
+        driveFolderId = await ensureDriveFolder();
+      }catch(e){
+        toast('Could not access Drive folder: ' + e.message, true);
+      }
+      // flush any photos already processed while signed out
+      for(const item of queue){
+        if(item.status === 'ready'){
+          try{
+            await uploadToDrive(item);
+            item.status = 'uploaded';
+            setTimeout(()=>removeItem(item.id), 900);
+          }catch(e){ item.status='error'; item.errorMsg = e.message; }
+        }
+      }
+      renderStrip(); updateCounts();
+    }
+  });
+}
+
+function signIn(){
+  if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
+  tokenClient.requestAccessToken();
+}
 
 function setDriveOn(on){
   const pill = document.getElementById('drivePill');
   document.getElementById('drivePillText').textContent = on ? 'Drive on' : 'Drive off';
   pill.className = 'drive-pill' + (on ? ' on' : '');
-  document.getElementById('signInBtn').style.display = on ? 'none' : (backendUrl ? 'flex' : 'none');
+  document.getElementById('signInBtn').style.display = on ? 'none' : (clientId ? 'flex' : 'none');
   document.getElementById('uploadAllBtn').style.display = on ? 'block' : 'none';
 }
 
 // ---------- Drive upload ----------
-function fetchWithTimeout(url, options, timeoutMs = 25000){
-  // Deliberately avoids AbortSignal — some environments can't serialize it across frames
-  return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject)=> setTimeout(()=> reject(new Error('Timed out — check connection')), timeoutMs))
-  ]);
-}
-
-async function ensureDriveFolder(){
-  const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const searchRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+async function ensureFolder(name, parentId){
+  let q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  if(parentId){ q += ` and '${parentId}' in parents`; }
+  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
-  if(searchRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder search'); }
   const searchData = await searchRes.json();
   if(searchData.files && searchData.files.length){
     return searchData.files[0].id;
   }
-  const createRes = await fetchWithTimeout('https://www.googleapis.com/drive/v3/files', {
+  const body = { name, mimeType: 'application/vnd.google-apps.folder' };
+  if(parentId){ body.parents = [parentId]; }
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+    body: JSON.stringify(body)
   });
-  if(createRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder create'); }
   const createData = await createRes.json();
   return createData.id;
 }
 
-function handleDriveAuthFailure(){
-  accessToken = null;
-  setDriveOn(false);
-  fetchAccessToken(); // try to recover via the backend for the next attempt
+async function ensureDriveFolder(){
+  return ensureFolder(DRIVE_FOLDER_NAME);
+}
+
+// "Location Updates" lives INSIDE "Ford Parts Photos" so it inherits that folder's
+// service-account share (the Ford Lister desktop tool reads it), and the parts
+// pipeline -- which only scans direct children for ford-part-*.jpg -- never sees it.
+async function ensureLocationFolder(){
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+  return ensureFolder(LOCATION_FOLDER_NAME, driveFolderId);
 }
 
 async function uploadToDrive(item){
-  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
-  const metadata = {
-    name: `ford-part-${item.id}-${Date.now()}.jpg`,
-    parents: [driveFolderId]
-  };
+  let folderId, name;
+  if(item.mode === 'locations'){
+    if(!locationFolderId){ locationFolderId = await ensureLocationFolder(); }
+    folderId = locationFolderId;
+    name = `loc-${item.groupId}-${item.kind}.jpg`;   // kind = 'part' | 'shelf'; same groupId pairs them
+  } else {
+    if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+    folderId = driveFolderId;
+    name = `ford-part-${item.id}-${Date.now()}.jpg`;
+  }
+  const metadata = { name, parents: [folderId] };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
   form.append('file', item.jpgBlob);
-  const res = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form
-  }, 45000);
+  });
   if(!res.ok){
     const text = await res.text().catch(()=>'');
-    if(res.status === 401){
-      handleDriveAuthFailure();
-    }
     throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
   }
 }
@@ -612,7 +706,12 @@ function renderStrip(){
     const div = document.createElement('div');
     div.className = 'thumb';
     const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error');
-    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${labelFor(item.status)}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
+    const badgeTxt = (item.mode === 'locations')
+      ? (item.status === 'uploaded' ? (item.kind === 'part' ? 'PART ✓' : 'SHELF ✓')
+         : item.status === 'error' ? 'Retry'
+         : (item.kind === 'part' ? 'PART' : 'SHELF'))
+      : labelFor(item.status);
+    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${badgeTxt}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
     if(item.status === 'error'){
       div.querySelector('img').onclick = ()=>{ item.status='queued'; item.errorMsg=null; renderStrip(); updateCounts(); processQueue(); };
     }
@@ -661,17 +760,26 @@ function downloadReady(){
 
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
+  sizeViewfinder();
   startCamera();
-  const cfg = loadBackendConfig();
-  backendUrl = cfg.url;
-  appSecret = cfg.secret;
-  if(backendUrl) document.getElementById('backendUrlInput').value = backendUrl;
-  if(appSecret) document.getElementById('appSecretInput').value = appSecret;
-  if(backendUrl && appSecret){
-    fetchAccessToken();
-  } else {
-    document.getElementById('signInBtn').style.display = 'flex';
+  clientId = await loadClientId();
+  if(!clientId){
+    clientId = DEFAULT_CLIENT_ID;
+    await persistClientId(clientId);
   }
+  document.getElementById('clientIdInput').value = clientId;
+  const check = setInterval(async ()=>{
+    if(window.google){
+      clearInterval(check);
+      initGoogleClient();
+      const consented = await hasConsentedBefore();
+      if(consented && tokenClient){
+        tokenClient.requestAccessToken({ prompt: '' }); // silent — reuses existing Google session, no popup if still valid
+      } else {
+        document.getElementById('signInBtn').style.display = 'flex';
+      }
+    }
+  }, 200);
   updateCounts();
 });
 </script>
