@@ -73,7 +73,14 @@
     box-shadow:0 1px 4px rgba(0,0,0,0.4);
   }
 
-  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;}
+  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;position:relative;}
+  .loc-finish{
+    position:absolute; right:24px; background:transparent; color:var(--orange);
+    border:2px solid var(--orange-dim); border-radius:12px; font-family:'IBM Plex Mono',monospace;
+    font-size:11px; font-weight:600; line-height:1.25; padding:8px 12px; cursor:pointer; text-align:center;
+  }
+  .loc-finish:active{ transform:scale(0.94); }
+  .badge.batch{background:rgba(255,106,26,0.85);color:#1c1d1f;}
   .shutter{
     width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
     box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
@@ -251,10 +258,9 @@
   </div>
 
   <div class="loc-steps" id="locSteps" style="display:none;">
-    <div class="loc-step" id="locStep0"><div class="n">1</div><div class="t">PART&nbsp;#<br>label photo</div></div>
-    <div class="loc-step" id="locStep1"><div class="n">2</div><div class="t">SHELF<br>location photo</div></div>
+    <div class="loc-step active" id="locBatchInfo"><div class="n" id="locBatchN">0</div><div class="t">parts in this batch — shoot each part, then tap <b>📍 Location</b> to finish. All parts go on that one shelf.</div></div>
   </div>
-  <div class="loc-count" id="locCount" style="display:none;">Pairs uploaded this session: <b id="locDone">0</b></div>
+  <div class="loc-count" id="locCount" style="display:none;">Batches uploaded this session: <b id="locDone">0</b></div>
 
   <div class="spec-strip" id="specStrip">
     <div class="spec"><div class="k">BG</div><div class="v">Skipped</div></div>
@@ -285,6 +291,7 @@
     <div class="shutter" id="shutterBtn" onclick="capturePhoto()">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
     </div>
+    <button class="loc-finish" id="locFinishBtn" onclick="captureLocation()" style="display:none;">📍<br>Location<br>+ Finish</button>
   </div>
 
   <div class="tally">
@@ -329,9 +336,8 @@ let accessToken = null;
 let driveFolderId = null;
 let locationFolderId = null;
 let mode = 'parts';       // 'parts' | 'locations'
-let locStep = 0;          // locations mode: 0 = expecting PART # photo, 1 = expecting SHELF photo
-let locGroupId = null;    // shared id that pairs a part photo with its shelf photo
-let locDoneCount = 0;     // completed location pairs this session
+let locBatchN = 0;        // parts shot in the current (unfinished) location batch
+let locDoneCount = 0;     // location batches uploaded this session
 let processing = false;
 let audioCtx = null;
 
@@ -428,10 +434,12 @@ async function startCamera(){
 
 function newPart(){
   if(mode === 'locations'){
-    locStep = 0; locGroupId = null;
-    updateLocStepUI();
+    queue = queue.filter(it => it.status !== 'batch');
+    locBatchN = 0;
+    updateLocUI();
     flashLoc('RESET');
-    toast('Pair reset — next shot is the PART #');
+    toast('Batch cleared — shoot parts, then tap 📍 Location');
+    renderStrip(); updateCounts();
     return;
   }
   shotCount = 0;
@@ -447,7 +455,9 @@ function newPart(){
 // ---------- mode: Parts vs Locations ----------
 function setMode(m){
   mode = m;
-  locStep = 0; locGroupId = null;
+  // discard any unfinished location-batch parts when switching modes
+  queue = queue.filter(it => it.status !== 'batch');
+  locBatchN = 0;
   document.querySelectorAll('.mode-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.mode === m);
   });
@@ -455,22 +465,25 @@ function setMode(m){
   document.getElementById('specStrip').style.display = loc ? 'none' : 'flex';
   document.getElementById('locSteps').style.display  = loc ? 'flex' : 'none';
   document.getElementById('locCount').style.display  = loc ? 'block' : 'none';
+  document.getElementById('locFinishBtn').style.display = loc ? 'flex' : 'none';
   document.querySelector('.brand small').textContent = loc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE';
-  updateLocStepUI();
+  updateLocUI();
+  renderStrip(); updateCounts();
   sizeViewfinder();
 }
 
-function updateLocStepUI(){
-  const s0 = document.getElementById('locStep0');
-  const s1 = document.getElementById('locStep1');
-  if(s0 && s1){
-    s0.className = 'loc-step' + (locStep === 0 ? ' active' : ' done');
-    s1.className = 'loc-step' + (locStep === 1 ? ' active' : '');
-  }
+function updateLocUI(){
+  const bn = document.getElementById('locBatchN');
+  if(bn) bn.textContent = locBatchN;
+  const bi = document.getElementById('locBatchInfo');
+  if(bi) bi.className = 'loc-step' + (locBatchN > 0 ? ' active' : '');
+  const fb = document.getElementById('locFinishBtn');
+  if(fb) fb.style.opacity = (locBatchN > 0) ? '1' : '0.5';
   const ti = document.getElementById('topIndicator');
   if(ti){
-    if(mode === 'locations'){ ti.innerHTML = (locStep === 0) ? '▲ PART&nbsp;#' : '▲ SHELF'; }
-    else { ti.innerHTML = '▲ TOP'; }
+    if(mode === 'locations'){
+      ti.innerHTML = (locBatchN > 0) ? ('▲ ' + locBatchN + ' PART(S) — TAP 📍') : '▲ SHOOT PARTS';
+    } else { ti.innerHTML = '▲ TOP'; }
   }
 }
 
@@ -492,7 +505,7 @@ function capturePhoto(){
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   canvas.toBlob((blob)=>{
-    if(mode === 'locations'){ handleLocationShot(blob); }
+    if(mode === 'locations'){ addBatchPart(blob); }
     else { handlePartShot(blob); }
   }, 'image/jpeg', 0.9);
 }
@@ -507,28 +520,50 @@ function handlePartShot(blob){
   processQueue();
 }
 
-function handleLocationShot(blob){
-  const thumbUrl = URL.createObjectURL(blob);
+function addBatchPart(blob){
   const id = ++idCounter;
-  if(locStep === 0){
-    // first shot of a pair = the PART NUMBER label
-    locGroupId = Date.now();
-    queue.push({ id, status:'queued', mode:'locations', kind:'part', groupId:locGroupId, rawBlob:blob, jpgBlob:null, thumbUrl });
-    locStep = 1;
-    flashLoc('PART ✓');
-    updateLocStepUI();
-    renderStrip(); updateCounts(); processQueue();
-  } else {
-    // second shot = the SHELF; completes the pair
-    queue.push({ id, status:'queued', mode:'locations', kind:'shelf', groupId:locGroupId, rawBlob:blob, jpgBlob:null, thumbUrl });
-    locDoneCount++;
-    document.getElementById('locDone').textContent = locDoneCount;
-    locStep = 0; locGroupId = null;
-    flashLoc('SHELF ✓');
-    updateLocStepUI();
-    renderStrip(); updateCounts(); processQueue();
-    toast(accessToken ? 'Location pair uploading to Drive' : 'Pair saved — sign in to upload');
+  const thumbUrl = URL.createObjectURL(blob);
+  // held as 'batch' (NOT uploaded) until the location shot finalizes the batch
+  queue.push({ id, status:'batch', mode:'locations', kind:'part', rawBlob:blob, jpgBlob:null, thumbUrl });
+  locBatchN++;
+  flashLoc('PART ' + locBatchN);
+  updateLocUI();
+  renderStrip(); updateCounts();
+}
+
+function captureLocation(){
+  if(locBatchN === 0){ toast('Shoot at least one part first', true); return; }
+  const video = document.getElementById('video');
+  if(!video.videoWidth){ toast('Camera not ready yet', true); return; }
+  playShutterSound();
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob)=> finalizeBatch(blob), 'image/jpeg', 0.9);
+}
+
+function finalizeBatch(shelfBlob){
+  const batchId = Date.now();
+  let seq = 0;
+  for(const it of queue){
+    if(it.status === 'batch' && it.mode === 'locations'){
+      seq++;
+      it.status = 'queued';
+      it.groupId = batchId;
+      it.seq = seq;
+    }
   }
+  const thumbUrl = URL.createObjectURL(shelfBlob);
+  queue.push({ id: ++idCounter, status:'queued', mode:'locations', kind:'shelf',
+               groupId: batchId, rawBlob: shelfBlob, jpgBlob:null, thumbUrl });
+  locDoneCount++;
+  document.getElementById('locDone').textContent = locDoneCount;
+  locBatchN = 0;
+  flashLoc('SHELF ✓');
+  updateLocUI();
+  renderStrip(); updateCounts(); processQueue();
+  toast(accessToken ? ('Batch uploading: ' + seq + ' part(s) + location') : 'Batch saved — sign in to upload');
 }
 
 // ---------- Photoroom processing ----------
@@ -668,7 +703,11 @@ async function uploadToDrive(item){
   if(item.mode === 'locations'){
     if(!locationFolderId){ locationFolderId = await ensureLocationFolder(); }
     folderId = locationFolderId;
-    name = `loc-${item.groupId}-${item.kind}.jpg`;   // kind = 'part' | 'shelf'; same groupId pairs them
+    if(item.kind === 'shelf'){
+      name = `loc-${item.groupId}-shelf.jpg`;                              // one shelf per batch
+    } else {
+      name = `loc-${item.groupId}-part-${String(item.seq || 1).padStart(2, '0')}.jpg`;  // batch part NN
+    }
   } else {
     if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
     folderId = driveFolderId;
@@ -693,6 +732,7 @@ async function uploadToDrive(item){
 function removeItem(id){
   const idx = queue.findIndex(q=>q.id===id);
   if(idx>-1){
+    if(queue[idx].status === 'batch' && locBatchN > 0){ locBatchN--; updateLocUI(); }
     URL.revokeObjectURL(queue[idx].thumbUrl);
     queue.splice(idx,1);
     renderStrip(); updateCounts();
@@ -705,7 +745,7 @@ function renderStrip(){
   queue.forEach(item=>{
     const div = document.createElement('div');
     div.className = 'thumb';
-    const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error');
+    const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error' || item.status === 'batch');
     const badgeTxt = (item.mode === 'locations')
       ? (item.status === 'uploaded' ? (item.kind === 'part' ? 'PART ✓' : 'SHELF ✓')
          : item.status === 'error' ? 'Retry'
