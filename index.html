@@ -616,21 +616,43 @@ async function getOcrWorker(){
   return ocrWorker;
 }
 
-// grayscale + contrast-stretch on an upscaled copy -> cleaner glyphs so Tesseract stops
-// dropping edge characters (the leading "E"/trailing "-B" Dave saw).
+function _otsu(gray){
+  const hist = new Array(256).fill(0);
+  for(let i = 0; i < gray.length; i++) hist[gray[i]]++;
+  const total = gray.length;
+  let sum = 0; for(let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, max = 0, thr = 127;
+  for(let i = 0; i < 256; i++){
+    wB += hist[i]; if(!wB) continue;
+    const wF = total - wB; if(!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if(between > max){ max = between; thr = i; }
+  }
+  return thr;
+}
+
+// Focus on the CENTER of the frame (the bracket area you aim at), upscale, and binarize
+// (Otsu threshold) so Tesseract reads crisp black-on-white instead of a noisy full photo.
 function preprocessForOCR(src){
-  const maxSide = Math.max(src.width, src.height) || 1;
-  const scale = Math.min(2.5, Math.max(1, 2000 / maxSide));
-  const w = Math.round(src.width * scale), h = Math.round(src.height * scale);
+  const side = Math.min(src.width, src.height) || 1;
+  const cs = Math.round(side * 0.9);                       // center square ≈ the viewfinder
+  const sx = Math.round((src.width - cs) / 2), sy = Math.round((src.height - cs) / 2);
+  const scale = Math.min(3, Math.max(1, 1500 / cs));       // upscale the crop
+  const w = Math.round(cs * scale), h = Math.round(cs * scale);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d');
-  ctx.drawImage(src, 0, 0, w, h);
+  ctx.drawImage(src, sx, sy, cs, cs, 0, 0, w, h);
   try{
     const img = ctx.getImageData(0, 0, w, h), d = img.data;
-    for(let i = 0; i < d.length; i += 4){
-      let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      g = (g - 128) * 1.5 + 128;                     // boost contrast
-      d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g;
+    const gray = new Uint8ClampedArray(w * h);
+    for(let i = 0, p = 0; i < d.length; i += 4, p++)
+      gray[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const thr = _otsu(gray);
+    for(let i = 0, p = 0; i < d.length; i += 4, p++){
+      const v = gray[p] > thr ? 255 : 0;                  // black text on white
+      d[i] = d[i + 1] = d[i + 2] = v;
     }
     ctx.putImageData(img, 0, 0);
   }catch(e){}
@@ -639,9 +661,13 @@ function preprocessForOCR(src){
 
 async function runLookupOCR(canvas){
   const st = document.getElementById('lkStatus');
+  const inp = document.getElementById('lkInput');
+  // reset the previous read + result on every new photo
+  if(inp) inp.value = '';
+  showLookupResult('', null);
+  if(st) st.textContent = 'Reading part number…';
   await loadLocationIndex();
   if(!window.Tesseract){ if(st) st.textContent = 'OCR still loading — type the part # instead.'; return; }
-  if(st) st.textContent = 'Reading part number…';
   try{
     const worker = await getOcrWorker();
     const { data } = await worker.recognize(preprocessForOCR(canvas));
@@ -660,7 +686,6 @@ async function runLookupOCR(canvas){
     }
     let match = null;
     for(const c of cands){ const m = findLocation(c); if(m){ match = m; break; } }
-    const inp = document.getElementById('lkInput');
     if(match){
       if(inp) inp.value = match.pn;
       showLookupResult(match.pn, match.entry);
