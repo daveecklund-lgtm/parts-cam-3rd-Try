@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Parts Cam</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -81,6 +82,18 @@
   }
   .loc-finish:active{ transform:scale(0.94); }
   .badge.batch{background:rgba(255,106,26,0.85);color:#1c1d1f;}
+
+  /* ---- Lookup mode ---- */
+  #lookupPanel{ margin:0 16px 12px; }
+  .lk-result{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 14px; text-align:center; }
+  .lk-loc{ font-family:'Oswald',sans-serif; font-weight:700; font-size:46px; color:var(--text-dim); letter-spacing:0.02em; line-height:1; word-break:break-word; }
+  .lk-loc.found{ color:var(--success); }
+  .lk-loc.missing{ color:var(--error); font-size:26px; }
+  .lk-pn{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim); margin-top:10px; word-break:break-word; }
+  .lk-inputrow{ display:flex; gap:8px; margin-top:10px; }
+  .lk-inputrow input{ flex:1; padding:11px 12px; background:var(--panel-alt); border:1px solid var(--line); border-radius:9px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:15px; text-transform:uppercase; }
+  .lk-inputrow .btn{ width:auto; padding:11px 18px; }
+  .lk-status{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-align:center; margin-top:8px; line-height:1.4; }
   .shutter{
     width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
     box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
@@ -255,6 +268,7 @@
   <div class="mode-seg" id="modeSeg">
     <button class="mode-btn active" data-mode="parts" onclick="setMode('parts')">Parts</button>
     <button class="mode-btn" data-mode="locations" onclick="setMode('locations')">Locations</button>
+    <button class="mode-btn" data-mode="lookup" onclick="setMode('lookup')">Lookup</button>
   </div>
 
   <div class="loc-steps" id="locSteps" style="display:none;">
@@ -306,6 +320,19 @@
 
   <div class="strip" id="strip"></div>
 
+  <div id="lookupPanel" style="display:none;">
+    <div class="lk-result">
+      <div class="lk-loc" id="lkLoc">—</div>
+      <div class="lk-pn" id="lkPn">Snap a printed part # or type it below</div>
+    </div>
+    <div class="lk-inputrow">
+      <input type="text" id="lkInput" placeholder="Type / paste part #" autocapitalize="characters"
+             autocomplete="off" spellcheck="false" oninput="doLookup(this.value)">
+      <button class="btn btn-primary" onclick="doLookup(document.getElementById('lkInput').value)">Find</button>
+    </div>
+    <div class="lk-status" id="lkStatus">Loading location index…</div>
+  </div>
+
   <footer>
     <button class="btn btn-google" id="signInBtn" onclick="signIn()" style="display:none;">
       <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v9h11.8c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.09c4.15-3.82 6.62-9.45 6.62-16.66z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.34l-7.09-5.52c-1.97 1.32-4.5 2.1-7.47 2.1-5.74 0-10.6-3.87-12.34-9.06H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.66 28.18c-.44-1.32-.68-2.72-.68-4.18s.24-2.86.68-4.18v-5.7H4.34C2.85 16.97 2 20.36 2 24s.85 7.03 2.34 9.88l7.32-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.32 5.7c1.74-5.19 6.6-9.07 12.34-9.07z"/></svg>
@@ -338,6 +365,8 @@ let locationFolderId = null;
 let mode = 'parts';       // 'parts' | 'locations'
 let locBatchN = 0;        // parts shot in the current (unfinished) location batch
 let locDoneCount = 0;     // location batches uploaded this session
+let locIndex = null;      // lookup: {NORMPN: {loc, pn}} loaded from locations_index.json
+let locIndexInfo = '';    // human summary of the loaded index
 let processing = false;
 let audioCtx = null;
 
@@ -461,14 +490,23 @@ function setMode(m){
   document.querySelectorAll('.mode-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.mode === m);
   });
-  const loc = (m === 'locations');
-  document.getElementById('specStrip').style.display = loc ? 'none' : 'flex';
-  document.getElementById('locSteps').style.display  = loc ? 'flex' : 'none';
-  document.getElementById('locCount').style.display  = loc ? 'block' : 'none';
-  document.getElementById('locFinishBtn').style.display = loc ? 'flex' : 'none';
-  document.querySelector('.brand small').textContent = loc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE';
+  const isLoc = (m === 'locations');
+  const isLook = (m === 'lookup');
+  const isParts = (m === 'parts');
+  document.getElementById('specStrip').style.display = isParts ? 'flex' : 'none';
+  document.getElementById('locSteps').style.display  = isLoc ? 'flex' : 'none';
+  document.getElementById('locCount').style.display  = isLoc ? 'block' : 'none';
+  document.getElementById('locFinishBtn').style.display = isLoc ? 'flex' : 'none';
+  document.getElementById('lookupPanel').style.display = isLook ? 'block' : 'none';
+  // hide the parts-capture chrome while looking up
+  document.querySelector('.tally').style.display = isLook ? 'none' : 'flex';
+  document.getElementById('strip').style.display = isLook ? 'none' : 'flex';
+  document.querySelector('footer').style.display = isLook ? 'none' : 'flex';
+  document.querySelector('.brand small').textContent =
+    isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE');
   updateLocUI();
   renderStrip(); updateCounts();
+  if(isLook){ loadLocationIndex(); showLookupResult('', null); }
   sizeViewfinder();
 }
 
@@ -483,7 +521,8 @@ function updateLocUI(){
   if(ti){
     if(mode === 'locations'){
       ti.innerHTML = (locBatchN > 0) ? ('▲ ' + locBatchN + ' PART(S) — TAP 📍') : '▲ SHOOT PARTS';
-    } else { ti.innerHTML = '▲ TOP'; }
+    } else if(mode === 'lookup'){ ti.innerHTML = '▲ PART #'; }
+    else { ti.innerHTML = '▲ TOP'; }
   }
 }
 
@@ -504,10 +543,88 @@ function capturePhoto(){
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
+  if(mode === 'lookup'){ runLookupOCR(canvas); return; }
   canvas.toBlob((blob)=>{
     if(mode === 'locations'){ addBatchPart(blob); }
     else { handlePartShot(blob); }
   }, 'image/jpeg', 0.9);
+}
+
+// ---------- mode: Lookup (photo/typed part # -> shelf location) ----------
+function normPN(s){ return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+async function loadLocationIndex(){
+  if(locIndex) return;
+  const st = document.getElementById('lkStatus');
+  try{
+    const res = await fetch('locations_index.json?v=' + Date.now(), { cache: 'no-store' });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    locIndex = data.index || {};
+    locIndexInfo = (data.count || Object.keys(locIndex).length) + ' parts · updated ' + String(data.generated || '').slice(0, 10);
+    if(st) st.textContent = 'Location index: ' + locIndexInfo;
+  }catch(e){
+    if(st) st.textContent = 'No location index found. In Ford Lister tap "Export Index", then upload locations_index.json next to this page.';
+  }
+}
+
+function showLookupResult(raw, entry){
+  const loc = document.getElementById('lkLoc');
+  const pn = document.getElementById('lkPn');
+  if(!loc || !pn) return;
+  if(entry){
+    loc.textContent = entry.loc;
+    loc.className = 'lk-loc found';
+    pn.textContent = entry.pn || raw;
+  } else {
+    loc.textContent = raw ? 'not found' : '—';
+    loc.className = 'lk-loc' + (raw ? ' missing' : '');
+    pn.textContent = raw ? ('No location on file for ' + raw) : 'Snap a printed part # or type it below';
+  }
+}
+
+function doLookup(text){
+  const key = normPN(text);
+  if(!key){ showLookupResult('', null); return; }
+  if(!locIndex){
+    loadLocationIndex();
+    const st = document.getElementById('lkStatus');
+    if(st) st.textContent = 'Loading index…';
+    return;
+  }
+  showLookupResult((text || '').trim(), locIndex[key] || null);
+}
+
+async function runLookupOCR(canvas){
+  const st = document.getElementById('lkStatus');
+  await loadLocationIndex();
+  if(!window.Tesseract){ if(st) st.textContent = 'OCR still loading — type the part # instead.'; return; }
+  if(st) st.textContent = 'Reading part number…';
+  try{
+    const { data } = await Tesseract.recognize(canvas, 'eng');
+    const text = ((data && data.text) || '').toUpperCase();
+    const toks = text.match(/[A-Z0-9][A-Z0-9\-]{4,}[A-Z0-9]/g) || [];
+    let hitRaw = '', fallbackRaw = '';
+    for(const t of toks){
+      const k = normPN(t);
+      if(k.length >= 5 && locIndex && locIndex[k]){ hitRaw = t; break; }
+      if(!fallbackRaw && k.length >= 6) fallbackRaw = t;
+    }
+    const chosen = hitRaw || fallbackRaw;
+    const inp = document.getElementById('lkInput');
+    if(chosen && inp) inp.value = chosen;
+    if(hitRaw){
+      showLookupResult(hitRaw, locIndex[normPN(hitRaw)]);
+      if(st) st.textContent = 'Read ' + hitRaw + ' · ' + locIndexInfo;
+    } else if(fallbackRaw){
+      showLookupResult(fallbackRaw, locIndex ? (locIndex[normPN(fallbackRaw)] || null) : null);
+      if(st) st.textContent = 'Read "' + fallbackRaw + '" — check/fix it, then tap Find.';
+    } else {
+      if(st) st.textContent = 'Couldn\'t read a part number — type it below.';
+    }
+  }catch(e){
+    if(st) st.textContent = 'OCR failed — type the part # instead.';
+  }
 }
 
 function handlePartShot(blob){
@@ -694,8 +811,19 @@ async function ensureDriveFolder(){
 // service-account share (the Ford Lister desktop tool reads it), and the parts
 // pipeline -- which only scans direct children for ford-part-*.jpg -- never sees it.
 async function ensureLocationFolder(){
+  // drive.file scope only sees folders THIS app created, so a NAME-ONLY search reliably
+  // returns our single "Location Updates" folder no matter where it's moved in Drive.
+  // This prevents duplicate folders if it's ever dragged out of "Ford Parts Photos".
+  try{
+    const q = `name='${LOCATION_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const d = await res.json();
+    if(d.files && d.files.length) return d.files[0].id;
+  }catch(e){}
   if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
-  return ensureFolder(LOCATION_FOLDER_NAME, driveFolderId);
+  return ensureFolder(LOCATION_FOLDER_NAME, driveFolderId);   // none yet -> create under Ford Parts Photos
 }
 
 async function uploadToDrive(item){
