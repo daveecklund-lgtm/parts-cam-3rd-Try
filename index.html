@@ -715,6 +715,16 @@ function cropForOCR(src){
   return c;
 }
 
+// full frame, just downscaled -> cloud OCR reads the WHOLE label (no clipping the number lines)
+function fullForOCR(src){
+  const maxSide = Math.max(src.width, src.height) || 1;
+  const scale = Math.min(1, 1600 / maxSide);
+  const w = Math.round(src.width * scale), h = Math.round(src.height * scale);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(src, 0, 0, w, h);
+  return c;
+}
+
 async function cloudOCR(canvas){
   const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
   const form = new FormData();
@@ -743,7 +753,7 @@ async function runLookupOCR(canvas){
 
   let text = '';
   try{
-    text = await cloudOCR(cropForOCR(canvas));                 // cloud OCR (accurate)
+    text = await cloudOCR(fullForOCR(canvas));                 // cloud OCR reads the whole label
   }catch(e){
     if(st) st.textContent = 'Cloud OCR unavailable — trying on-device…';
     if(window.Tesseract){
@@ -761,14 +771,16 @@ async function runLookupOCR(canvas){
   const lines = text.split(/[\r\n]+/);
   const seen = new Set(), choices = [];
   for(const line of lines){
-    const toks = line.match(/[A-Z0-9\-]{4,}/g) || [];
-    for(let i = 0; i < toks.length; i++){
-      const a = normPN(toks[i]);
-      if(a.length >= 5 && /[0-9]/.test(a) && !seen.has(a)){ seen.add(a); choices.push({ display: toks[i], key: a }); }
-      if(i + 1 < toks.length){
-        const j = normPN(toks[i] + toks[i + 1]);   // rejoin a split part # on one line
-        if(j.length >= 6 && /[0-9]/.test(j) && !seen.has(j)){ seen.add(j); choices.push({ display: toks[i] + ' ' + toks[i + 1], key: j }); }
-      }
+    // whole-line join: rebuilds a part # split by spaces/dashes ("E8GZ - 6564 - B" -> E8GZ6564B)
+    const lineKey = normPN(line);
+    if(lineKey.length >= 5 && lineKey.length <= 14 && /[0-9]/.test(lineKey) && !seen.has(lineKey)){
+      seen.add(lineKey); choices.push({ display: line.trim(), key: lineKey });
+    }
+    // plus any standalone code on the line (for lines that carry several numbers)
+    const toks = line.match(/[A-Z0-9\-]{5,}/g) || [];
+    for(const t of toks){
+      const a = normPN(t);
+      if(a.length >= 5 && a !== lineKey && /[0-9]/.test(a) && !seen.has(a)){ seen.add(a); choices.push({ display: t, key: a }); }
     }
   }
   renderChoices(choices);
@@ -783,7 +795,9 @@ async function runLookupOCR(canvas){
     showLookupResult(longest ? longest.display : '', null);
     if(st) st.textContent = 'No exact match — tap the right part number above, or fix it & Find.';
   } else {
-    if(st) st.textContent = 'Couldn\'t read — type the part # below.';
+    const raw = (text || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if(st) st.textContent = raw ? ('Read: "' + raw + '" — no part # found. Type it below.')
+                                : 'Couldn\'t read — type the part # below.';
   }
 }
 
