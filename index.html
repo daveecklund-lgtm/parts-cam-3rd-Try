@@ -357,6 +357,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
+const APP_VERSION = "v8";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -513,7 +514,7 @@ function setMode(m){
   document.getElementById('strip').style.display = isLook ? 'none' : 'flex';
   document.querySelector('footer').style.display = isLook ? 'none' : 'flex';
   document.querySelector('.brand small').textContent =
-    isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE');
+    (isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE')) + ' · ' + APP_VERSION;
   updateLocUI();
   renderStrip(); updateCounts();
   if(isLook){ loadLocationIndex(); showLookupResult('', null); }
@@ -1102,6 +1103,7 @@ function downloadReady(){
 
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
+  document.querySelector('.brand small').textContent = 'FORD OEM · LABEL CAPTURE · ' + APP_VERSION;
   sizeViewfinder();
   startCamera();
   clientId = await loadClientId();
