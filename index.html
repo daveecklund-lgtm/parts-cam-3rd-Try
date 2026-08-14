@@ -583,16 +583,58 @@ function showLookupResult(raw, entry){
   }
 }
 
+function findLocation(raw){
+  // EXACT match only (Dave: "it needs to be exact") -- never guess a nearby part #.
+  const key = normPN(raw);
+  if(!key || !locIndex || !locIndex[key]) return null;
+  return { entry: locIndex[key], pn: locIndex[key].pn || key };
+}
+
 function doLookup(text){
-  const key = normPN(text);
-  if(!key){ showLookupResult('', null); return; }
+  const raw = (text || '').trim();
+  if(!normPN(raw)){ showLookupResult('', null); return; }
   if(!locIndex){
     loadLocationIndex();
     const st = document.getElementById('lkStatus');
     if(st) st.textContent = 'Loading index…';
     return;
   }
-  showLookupResult((text || '').trim(), locIndex[key] || null);
+  const m = findLocation(raw);
+  showLookupResult(m ? m.pn : raw, m ? m.entry : null);
+}
+
+let ocrWorker = null;
+async function getOcrWorker(){
+  if(ocrWorker) return ocrWorker;
+  ocrWorker = await Tesseract.createWorker('eng');
+  try{
+    await ocrWorker.setParameters({
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-',  // part #s only
+      tessedit_pageseg_mode: '6'                                          // one uniform block
+    });
+  }catch(e){}
+  return ocrWorker;
+}
+
+// grayscale + contrast-stretch on an upscaled copy -> cleaner glyphs so Tesseract stops
+// dropping edge characters (the leading "E"/trailing "-B" Dave saw).
+function preprocessForOCR(src){
+  const maxSide = Math.max(src.width, src.height) || 1;
+  const scale = Math.min(2.5, Math.max(1, 2000 / maxSide));
+  const w = Math.round(src.width * scale), h = Math.round(src.height * scale);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(src, 0, 0, w, h);
+  try{
+    const img = ctx.getImageData(0, 0, w, h), d = img.data;
+    for(let i = 0; i < d.length; i += 4){
+      let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      g = (g - 128) * 1.5 + 128;                     // boost contrast
+      d[i] = d[i + 1] = d[i + 2] = g < 0 ? 0 : g > 255 ? 255 : g;
+    }
+    ctx.putImageData(img, 0, 0);
+  }catch(e){}
+  return c;
 }
 
 async function runLookupOCR(canvas){
@@ -601,26 +643,34 @@ async function runLookupOCR(canvas){
   if(!window.Tesseract){ if(st) st.textContent = 'OCR still loading — type the part # instead.'; return; }
   if(st) st.textContent = 'Reading part number…';
   try{
-    const { data } = await Tesseract.recognize(canvas, 'eng');
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(preprocessForOCR(canvas));
     const text = ((data && data.text) || '').toUpperCase();
-    const toks = text.match(/[A-Z0-9][A-Z0-9\-]{4,}[A-Z0-9]/g) || [];
-    let hitRaw = '', fallbackRaw = '';
-    for(const t of toks){
-      const k = normPN(t);
-      if(k.length >= 5 && locIndex && locIndex[k]){ hitRaw = t; break; }
-      if(!fallbackRaw && k.length >= 6) fallbackRaw = t;
+    const toks = text.match(/[A-Z0-9\-]{2,}/g) || [];
+    // candidate keys: each token, plus long+short joins so a split suffix ("...693  B")
+    // is reassembled into the one exact part number.
+    const cands = [];
+    for(let i = 0; i < toks.length; i++){
+      const a = normPN(toks[i]);
+      if(a.length >= 5) cands.push(a);
+      if(i + 1 < toks.length){
+        const b = normPN(toks[i + 1]);
+        if(a.length >= 5 && b.length >= 1 && b.length <= 3) cands.push(a + b);
+      }
     }
-    const chosen = hitRaw || fallbackRaw;
+    let match = null;
+    for(const c of cands){ const m = findLocation(c); if(m){ match = m; break; } }
     const inp = document.getElementById('lkInput');
-    if(chosen && inp) inp.value = chosen;
-    if(hitRaw){
-      showLookupResult(hitRaw, locIndex[normPN(hitRaw)]);
-      if(st) st.textContent = 'Read ' + hitRaw + ' · ' + locIndexInfo;
-    } else if(fallbackRaw){
-      showLookupResult(fallbackRaw, locIndex ? (locIndex[normPN(fallbackRaw)] || null) : null);
-      if(st) st.textContent = 'Read "' + fallbackRaw + '" — check/fix it, then tap Find.';
+    if(match){
+      if(inp) inp.value = match.pn;
+      showLookupResult(match.pn, match.entry);
+      if(st) st.textContent = 'Read ' + match.pn + ' · ' + locIndexInfo;
     } else {
-      if(st) st.textContent = 'Couldn\'t read a part number — type it below.';
+      const longest = cands.slice().sort((a, b) => b.length - a.length)[0] || '';
+      if(inp && longest) inp.value = longest;
+      showLookupResult(longest, null);
+      if(st) st.textContent = longest ? ('Read "' + longest + '" — check it, fix if needed, then Find.')
+                                      : 'Couldn\'t read — type the part # below.';
     }
   }catch(e){
     if(st) st.textContent = 'OCR failed — type the part # instead.';
