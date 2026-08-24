@@ -21,8 +21,12 @@
     --line:#3a3c3f;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;height:100%;overscroll-behavior:none;}
-  #app{display:flex;flex-direction:column;height:100vh;max-width:520px;margin:0 auto;position:relative;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100%;overscroll-behavior:none;}
+  #app{
+    display:flex; flex-direction:column;
+    min-height:100vh;      /* grow rather than squeeze */
+    max-width:520px; margin:0 auto; position:relative;
+  }
 
   header{
     display:flex;align-items:center;justify-content:space-between;
@@ -68,10 +72,11 @@
   .brackets .br{bottom:0;right:0;border-left:none;border-top:none;}
   .cam-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--text-dim);font-size:13px;}
   .top-indicator{
-    position:absolute; top:6px; left:50%; transform:translate(-50%,0);
+    position:absolute; z-index:14;
     background:var(--orange); color:#1c1d1f; font-family:'IBM Plex Mono',monospace; font-weight:600;
-    font-size:10px; letter-spacing:0.05em; padding:2px 8px 3px; border-radius:4px; z-index:14;
+    font-size:10px; letter-spacing:0.05em; padding:2px 8px 3px; border-radius:4px;
     box-shadow:0 1px 4px rgba(0,0,0,0.4);
+    top:6px; left:50%; transform:translate(-50%,0);
   }
 
   .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;height:108px;box-sizing:border-box;}
@@ -502,7 +507,9 @@ async function fetchAccessToken(){
     setDriveOn(true);
     scheduleTokenRefresh();
     try{
-      driveFolderId = await ensureDriveFolder();
+      // The server tells us which shared folder to upload into (service-account mode).
+      // Fall back to finding/creating our own folder if it didn't supply one.
+      driveFolderId = data.folder_id || await ensureDriveFolder();
     }catch(e){
       toast('Could not access Drive folder: ' + e.message, true);
     }
