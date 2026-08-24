@@ -4,13 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Parts Cam</title>
-<link rel="apple-touch-icon" href="gear-icon.png?v=12">
-<link rel="icon" type="image/png" href="gear-icon.png?v=12">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="apple-mobile-web-app-title" content="Parts Cam">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -58,11 +51,13 @@
   .spec .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-top:2px;font-weight:600;}
 
   .viewfinder-wrap{
-    flex:1; position:relative; margin:0 16px; min-height:0;
+    flex:0 0 auto; position:relative; margin:0 16px; height:360px;
     display:flex; align-items:center; justify-content:center;
   }
   .viewfinder-square{
     position:relative; overflow:hidden; border-radius:14px; background:#000;
+    width:360px; max-width:100%; aspect-ratio:1 / 1;
+    flex-shrink:0;
   }
   video{width:100%;height:100%;object-fit:cover;display:block;}
   .brackets{position:absolute;inset:14px;pointer-events:none;}
@@ -79,32 +74,7 @@
     box-shadow:0 1px 4px rgba(0,0,0,0.4);
   }
 
-  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;position:relative;}
-  .loc-finish{
-    position:absolute; right:24px; background:transparent; color:var(--orange);
-    border:2px solid var(--orange-dim); border-radius:12px; font-family:'IBM Plex Mono',monospace;
-    font-size:11px; font-weight:600; line-height:1.25; padding:8px 12px; cursor:pointer; text-align:center;
-  }
-  .loc-finish:active{ transform:scale(0.94); }
-  .badge.batch{background:rgba(255,106,26,0.85);color:#1c1d1f;}
-
-  /* ---- Lookup mode ---- */
-  #lookupPanel{ margin:0 16px 12px; }
-  .lk-result{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 14px; text-align:center; }
-  .lk-loc{ font-family:'Oswald',sans-serif; font-weight:700; font-size:46px; color:var(--text-dim); letter-spacing:0.02em; line-height:1; word-break:break-word; }
-  .lk-loc.found{ color:var(--success); }
-  .lk-loc.missing{ color:var(--error); font-size:26px; }
-  .lk-pn{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim); margin-top:10px; word-break:break-word; }
-  .lk-inputrow{ display:flex; gap:8px; margin-top:10px; }
-  .lk-inputrow input{ flex:1; padding:11px 12px; background:var(--panel-alt); border:1px solid var(--line); border-radius:9px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:15px; text-transform:uppercase; }
-  .lk-inputrow .btn{ width:auto; padding:11px 18px; }
-  .lk-status{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-align:center; margin-top:8px; line-height:1.4; }
-  .lk-choices{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
-  .lk-choices-label{ width:100%; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-dim); }
-  .lk-choice{ font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:8px 11px; border-radius:8px;
-    background:var(--panel); border:1px solid var(--line); color:var(--text); cursor:pointer; }
-  .lk-choice.match{ border-color:rgba(95,174,110,0.6); color:var(--success); }
-  .lk-choice.active{ background:var(--orange); color:#1c1d1f; border-color:var(--orange); }
+  .shutter-row{display:flex;align-items:center;justify-content:center;padding:18px 16px;flex-shrink:0;gap:0;height:108px;box-sizing:border-box;}
   .shutter{
     width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
     box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
@@ -146,7 +116,7 @@
     font-family:'Inter',sans-serif; font-weight:600; cursor:pointer; z-index:2;
   }
 
-  footer{padding:10px 16px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;}
+  footer{padding:10px 16px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;min-height:132px;box-sizing:border-box;}
   .btn{
     font-family:'Inter',sans-serif;font-weight:600;font-size:13.5px;padding:12px;border-radius:9px;border:none;
     cursor:pointer;text-align:center;letter-spacing:0.01em;
@@ -157,7 +127,10 @@
   .btn-google{background:#fff;color:#333;display:flex;align-items:center;justify-content:center;gap:8px;}
 
   .setup-panel{
-    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:2px;
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:calc(100% - 32px); max-width:420px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
+    z-index:100; box-shadow:0 8px 32px rgba(0,0,0,0.7);
   }
   .setup-panel p{font-size:11.5px;color:var(--text-dim);line-height:1.5;margin:0 0 8px;}
   .setup-panel input{
@@ -191,72 +164,6 @@
   }
 
   ::-webkit-scrollbar{display:none;}
-
-  /* ---- Mode toggle (Parts / Locations) ---- */
-  .mode-seg{ display:flex; gap:6px; margin:0 16px 10px; flex-shrink:0; }
-  .mode-btn{
-    flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.05em;
-    text-transform:uppercase; padding:8px 6px; border-radius:8px; cursor:pointer;
-    background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
-  }
-  .mode-btn.active{ background:var(--orange); border-color:var(--orange); color:#1c1d1f; font-weight:600; }
-
-  /* ---- Location step strip (2-shot guide) ---- */
-  .loc-steps{ display:flex; gap:8px; margin:0 16px 10px; flex-shrink:0; align-items:stretch; }
-  .loc-step{
-    flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel);
-    display:flex; align-items:center; gap:8px;
-  }
-  .loc-step .n{
-    width:20px; height:20px; border-radius:50%; background:var(--panel-alt); color:var(--text-dim);
-    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600;
-    display:flex; align-items:center; justify-content:center; flex-shrink:0;
-  }
-  .loc-step .t{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); letter-spacing:0.03em; line-height:1.2; }
-  .loc-step.active{ border-color:var(--orange); background:rgba(255,106,26,0.10); }
-  .loc-step.active .n{ background:var(--orange); color:#1c1d1f; }
-  .loc-step.active .t{ color:var(--text); }
-  .loc-step.done .n{ background:var(--success); color:#0e2413; }
-  .loc-count{ margin:0 16px 10px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-align:center; }
-  .loc-count b{ color:var(--success); }
-
-  /* ---- Landscape mode: compact all chrome so the viewfinder stays fully visible ---- */
-  @media (orientation: landscape) and (max-height: 550px){
-    #app{
-      padding-left: env(safe-area-inset-left, 0px);
-      padding-right: env(safe-area-inset-right, 0px);
-      max-width: none;
-      display:grid;
-      grid-template-columns: 1fr 88px;
-      grid-template-rows: auto auto 1fr auto auto;
-      grid-template-areas:
-        "header header"
-        "tally tally"
-        "viewfinder shutter"
-        "strip strip"
-        "footer footer";
-      height:100vh;
-    }
-    header{ grid-area:header; padding:6px 12px 4px; }
-    .brand small{ display:none; }
-    .brand h1{ font-size:15px; }
-    .drive-pill{ padding:3px 8px; font-size:9px; }
-    .spec-strip{ display:none; }
-    .setup-panel{ grid-column:1 / -1; margin:0 12px 6px !important; }
-    .viewfinder-wrap{ grid-area:viewfinder; margin:0 0 0 8px; }
-    .brackets{ inset:8px; }
-    .brackets span{ width:18px; height:18px; }
-    .shutter-row{ grid-area:shutter; padding:0 10px; }
-    .shutter{ width:52px; height:52px; }
-    .shutter svg{ width:18px; height:18px; }
-    .tally{ grid-area:tally; padding:5px 10px; margin:0 8px; }
-    .tally .item{ font-size:10px; }
-    .tally .item b{ font-size:11px; }
-    .strip{ grid-area:strip; padding:6px 12px; min-height:54px; }
-    .thumb{ width:42px; height:42px; }
-    footer{ grid-area:footer; padding:6px 12px 10px; flex-direction:row; gap:6px; }
-    footer .btn{ padding:8px; font-size:11.5px; flex:1; }
-  }
 </style>
 </head>
 <body>
@@ -276,27 +183,18 @@
     </div>
   </header>
 
-  <div class="mode-seg" id="modeSeg">
-    <button class="mode-btn active" data-mode="parts" onclick="setMode('parts')">Parts</button>
-    <button class="mode-btn" data-mode="locations" onclick="setMode('locations')">Locations</button>
-    <button class="mode-btn" data-mode="lookup" onclick="setMode('lookup')">Lookup</button>
-  </div>
-
-  <div class="loc-steps" id="locSteps" style="display:none;">
-    <div class="loc-step active" id="locBatchInfo"><div class="n" id="locBatchN">0</div><div class="t">parts in this batch — shoot each part, then tap <b>📍 Location</b> to finish. All parts go on that one shelf.</div></div>
-  </div>
-  <div class="loc-count" id="locCount" style="display:none;">Batches uploaded this session: <b id="locDone">0</b></div>
-
-  <div class="spec-strip" id="specStrip">
+  <div class="spec-strip">
     <div class="spec"><div class="k">BG</div><div class="v">Skipped</div></div>
     <div class="spec"><div class="k">Edit</div><div class="v">Photoroom app</div></div>
     <div class="spec"><div class="k">Out</div><div class="v">Raw JPG</div></div>
   </div>
 
-  <div id="setupPanel" class="setup-panel" style="display:none; margin:0 16px 10px;">
-    <p>Direct-to-Drive upload needs a Google OAuth Client ID from your own Google Cloud project (Drive API enabled, this page's address added as an Authorized JavaScript origin). This page's address: <span id="originText" style="color:var(--text);"></span></p>
-    <input type="text" id="clientIdInput" placeholder="Paste your OAuth Client ID">
-    <button class="btn btn-primary" onclick="saveClientId()" style="width:100%;">Save & Connect Drive</button>
+  <div id="setupPanel" class="setup-panel" style="display:none;">
+    <p>Paste in your token server's address and shared secret (from your Render deployment). One-time setup — after this, Drive stays connected permanently.</p>
+    <input type="text" id="backendUrlInput" placeholder="https://your-app.onrender.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <input type="text" id="appSecretInput" placeholder="App shared secret" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="btn btn-primary" onclick="saveBackendConfig()" style="width:100%;">Save & Connect Drive</button>
+    <button class="btn btn-secondary" onclick="toggleSetup()" style="width:100%; margin-top:6px;">Cancel</button>
   </div>
 
   <div class="viewfinder-wrap">
@@ -316,7 +214,6 @@
     <div class="shutter" id="shutterBtn" onclick="capturePhoto()">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
     </div>
-    <button class="loc-finish" id="locFinishBtn" onclick="captureLocation()" style="display:none;">📍<br>Location<br>+ Finish</button>
   </div>
 
   <div class="tally">
@@ -331,27 +228,12 @@
 
   <div class="strip" id="strip"></div>
 
-  <div id="lookupPanel" style="display:none;">
-    <div class="lk-result">
-      <div class="lk-loc" id="lkLoc">—</div>
-      <div class="lk-pn" id="lkPn">Snap a printed part # or type it below</div>
-    </div>
-    <div class="lk-inputrow">
-      <input type="text" id="lkInput" placeholder="Type / paste part #" autocapitalize="characters"
-             autocomplete="off" spellcheck="false" oninput="doLookup(this.value)">
-      <button class="btn btn-primary" onclick="doLookup(document.getElementById('lkInput').value)">Find</button>
-    </div>
-    <div class="lk-choices" id="lkChoices"></div>
-    <div class="lk-status" id="lkStatus">Loading location index…</div>
-  </div>
-
   <footer>
-    <button class="btn btn-google" id="signInBtn" onclick="signIn()" style="display:none;">
-      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v9h11.8c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.09c4.15-3.82 6.62-9.45 6.62-16.66z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.34l-7.09-5.52c-1.97 1.32-4.5 2.1-7.47 2.1-5.74 0-10.6-3.87-12.34-9.06H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.66 28.18c-.44-1.32-.68-2.72-.68-4.18s.24-2.86.68-4.18v-5.7H4.34C2.85 16.97 2 20.36 2 24s.85 7.03 2.34 9.88l7.32-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.32 5.7c1.74-5.19 6.6-9.07 12.34-9.07z"/></svg>
-      Sign in with Google
+    <button class="btn btn-google" id="signInBtn" onclick="fetchAccessToken()" style="visibility:hidden;">
+      Reconnect Drive
     </button>
-    <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="display:none;">Upload All to Drive</button>
-    <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()">Download processed JPGs</button>
+    <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="visibility:hidden;">Upload All to Drive</button>
+    <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()" style="visibility:hidden;">Save photos to phone</button>
   </footer>
 
 </div>
@@ -359,30 +241,17 @@
 <script>
 const PHOTOROOM_ENDPOINT = "https://image-api.photoroom.com/v2/edit";
 const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a43a02ee95073";
-// Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
-// -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
-const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v12";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
-const LOCATION_FOLDER_NAME = "Location Updates";   // subfolder of Ford Parts Photos; read by the Ford Lister desktop tool
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.googleusercontent.com";
 
 let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
 let idCounter = 0;
 let shotCount = 0;       // cycles 1-5 per part, resets automatically
-let clientId = null;
-let tokenClient = null;
+let backendUrl = null;
+let appSecret = null;
 let accessToken = null;
 let driveFolderId = null;
-let locationFolderId = null;
-let mode = 'parts';       // 'parts' | 'locations'
-let locBatchN = 0;        // parts shot in the current (unfinished) location batch
-let locDoneCount = 0;     // location batches uploaded this session
-let locIndex = null;      // lookup: {NORMPN: {loc, pn}} loaded from locations_index.json
-let locIndexInfo = '';    // human summary of the loaded index
 let processing = false;
 let audioCtx = null;
 
@@ -428,39 +297,22 @@ function toast(msg, isError){
   window._toastTimer = setTimeout(()=>{ t.className='toast'; }, 3200);
 }
 
-// ---------- storage: remember client id across sessions ----------
-async function loadClientId(){
+// ---------- storage: remember backend config across sessions ----------
+function loadBackendConfig(){
   try{
-    const res = await window.storage.get('driveClientId');
-    if(res && res.value) return res.value;
-  }catch(e){}
-  return null;
+    return {
+      url: localStorage.getItem('driveBackendUrl') || null,
+      secret: localStorage.getItem('driveAppSecret') || null
+    };
+  }catch(e){ return { url:null, secret:null }; }
 }
-async function persistClientId(id){
-  try{ await window.storage.set('driveClientId', id); }catch(e){}
-}
-async function hasConsentedBefore(){
+function persistBackendConfig(url, secret){
   try{
-    const res = await window.storage.get('driveHasConsented');
-    return !!(res && res.value === 'yes');
+    localStorage.setItem('driveBackendUrl', url);
+    localStorage.setItem('driveAppSecret', secret);
+    return true;
   }catch(e){ return false; }
 }
-async function markConsented(){
-  try{ await window.storage.set('driveHasConsented', 'yes'); }catch(e){}
-}
-
-function sizeViewfinder(){
-  const wrap = document.querySelector('.viewfinder-wrap');
-  const sq = document.getElementById('vfSquare');
-  if(!wrap || !sq) return;
-  const w = wrap.clientWidth;
-  const h = wrap.clientHeight;
-  const side = Math.max(40, Math.min(w, h));
-  sq.style.width = side + 'px';
-  sq.style.height = side + 'px';
-}
-window.addEventListener('resize', sizeViewfinder);
-window.addEventListener('orientationchange', ()=> setTimeout(sizeViewfinder, 250));
 
 // ---------- camera ----------
 async function startCamera(){
@@ -469,7 +321,12 @@ async function startCamera(){
       video: { facingMode: 'environment', width:{ideal:1920}, height:{ideal:1920} },
       audio: false
     });
-    document.getElementById('video').srcObject = stream;
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    // if the browser kills this stream later (backgrounding, etc), notice and restart
+    stream.getVideoTracks().forEach(track=>{
+      track.addEventListener('ended', ()=>{ setTimeout(startCamera, 300); });
+    });
   }catch(e){
     const el = document.getElementById('camError');
     el.style.display = 'flex';
@@ -477,16 +334,25 @@ async function startCamera(){
   }
 }
 
-function newPart(){
-  if(mode === 'locations'){
-    queue = queue.filter(it => it.status !== 'batch');
-    locBatchN = 0;
-    updateLocUI();
-    flashLoc('RESET');
-    toast('Batch cleared — shoot parts, then tap 📍 Location');
-    renderStrip(); updateCounts();
-    return;
+function isCameraLive(){
+  const video = document.getElementById('video');
+  const stream = video.srcObject;
+  if(!stream) return false;
+  const tracks = stream.getVideoTracks();
+  return tracks.length > 0 && tracks[0].readyState === 'live';
+}
+
+// When returning to the tab/app (foreground, unlock, etc), make sure the feed is still actually live
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && !isCameraLive()){
+    startCamera();
   }
+});
+window.addEventListener('pageshow', ()=>{
+  if(!isCameraLive()) startCamera();
+});
+
+function newPart(){
   shotCount = 0;
   const el = document.getElementById('shotFlash');
   el.textContent = 'NEW PART';
@@ -497,541 +363,243 @@ function newPart(){
   toast('Counter reset — next photo starts at 1');
 }
 
-// ---------- mode: Parts vs Locations ----------
-function setMode(m){
-  mode = m;
-  // discard any unfinished location-batch parts when switching modes
-  queue = queue.filter(it => it.status !== 'batch');
-  locBatchN = 0;
-  document.querySelectorAll('.mode-btn').forEach(b=>{
-    b.classList.toggle('active', b.dataset.mode === m);
-  });
-  const isLoc = (m === 'locations');
-  const isLook = (m === 'lookup');
-  const isParts = (m === 'parts');
-  document.getElementById('specStrip').style.display = isParts ? 'flex' : 'none';
-  document.getElementById('locSteps').style.display  = isLoc ? 'flex' : 'none';
-  document.getElementById('locCount').style.display  = isLoc ? 'block' : 'none';
-  document.getElementById('locFinishBtn').style.display = isLoc ? 'flex' : 'none';
-  document.getElementById('lookupPanel').style.display = isLook ? 'block' : 'none';
-  // hide the parts-capture chrome while looking up
-  document.querySelector('.tally').style.display = isLook ? 'none' : 'flex';
-  document.getElementById('strip').style.display = isLook ? 'none' : 'flex';
-  document.querySelector('footer').style.display = isLook ? 'none' : 'flex';
-  document.querySelector('.brand small').textContent =
-    (isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE')) + ' · ' + APP_VERSION;
-  updateLocUI();
-  renderStrip(); updateCounts();
-  if(isLook){ loadLocationIndex(); showLookupResult('', null); }
-  sizeViewfinder();
-}
-
-function updateLocUI(){
-  const bn = document.getElementById('locBatchN');
-  if(bn) bn.textContent = locBatchN;
-  const bi = document.getElementById('locBatchInfo');
-  if(bi) bi.className = 'loc-step' + (locBatchN > 0 ? ' active' : '');
-  const fb = document.getElementById('locFinishBtn');
-  if(fb) fb.style.opacity = (locBatchN > 0) ? '1' : '0.5';
-  const ti = document.getElementById('topIndicator');
-  if(ti){
-    if(mode === 'locations'){
-      ti.innerHTML = (locBatchN > 0) ? ('▲ ' + locBatchN + ' PART(S) — TAP 📍') : '▲ SHOOT PARTS';
-    } else if(mode === 'lookup'){ ti.innerHTML = '▲ PART #'; }
-    else { ti.innerHTML = '▲ TOP'; }
+// How far the screen is rotated from portrait, in degrees.
+function getScreenAngle(){
+  if(screen.orientation && typeof screen.orientation.angle === 'number'){
+    return screen.orientation.angle;
   }
-}
-
-function flashLoc(text){
-  const el = document.getElementById('shotFlash');
-  el.textContent = text;
-  el.classList.remove('pop');
-  el.classList.add('small');
-  void el.offsetWidth;
-  el.classList.add('pop');
+  if(typeof window.orientation === 'number') return window.orientation;
+  return 0;
 }
 
 function capturePhoto(){
   const video = document.getElementById('video');
   if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
   playShutterSound();
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  if(mode === 'lookup'){ runLookupOCR(canvas); return; }
-  canvas.toBlob((blob)=>{
-    if(mode === 'locations'){ addBatchPart(blob); }
-    else { handlePartShot(blob); }
-  }, 'image/jpeg', 0.9);
-}
-
-// ---------- mode: Lookup (photo/typed part # -> shelf location) ----------
-function normPN(s){ return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
-
-async function loadLocationIndex(){
-  if(locIndex) return;
-  const st = document.getElementById('lkStatus');
-  try{
-    const res = await fetch('locations_index.json?v=' + Date.now(), { cache: 'no-store' });
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    locIndex = data.index || {};
-    locIndexInfo = (data.count || Object.keys(locIndex).length) + ' parts · updated ' + String(data.generated || '').slice(0, 10);
-    if(st) st.textContent = 'Location index: ' + locIndexInfo;
-  }catch(e){
-    if(st) st.textContent = 'No location index found. In Ford Lister tap "Export Index", then upload locations_index.json next to this page.';
-  }
-}
-
-function showLookupResult(raw, entry){
-  const loc = document.getElementById('lkLoc');
-  const pn = document.getElementById('lkPn');
-  if(!loc || !pn) return;
-  if(entry){
-    loc.textContent = entry.loc;
-    loc.className = 'lk-loc found';
-    pn.textContent = entry.pn || raw;
-  } else {
-    loc.textContent = raw ? 'not found' : '—';
-    loc.className = 'lk-loc' + (raw ? ' missing' : '');
-    pn.textContent = raw ? ('No location on file for ' + raw) : 'Snap a printed part # or type it below';
-  }
-}
-
-function findLocation(raw){
-  // EXACT match only (Dave: "it needs to be exact") -- never guess a nearby part #.
-  const key = normPN(raw);
-  if(!key || !locIndex || !locIndex[key]) return null;
-  return { entry: locIndex[key], pn: locIndex[key].pn || key };
-}
-
-function renderChoices(choices){
-  const box = document.getElementById('lkChoices');
-  if(!box) return;
-  box.innerHTML = '';
-  if(!choices.length) return;
-  const lab = document.createElement('div');
-  lab.className = 'lk-choices-label';
-  lab.textContent = 'Tap the correct part number:';
-  box.appendChild(lab);
-  choices.forEach(ch => {
-    const m = findLocation(ch.key);
-    const b = document.createElement('button');
-    b.className = 'lk-choice' + (m ? ' match' : '');
-    b.textContent = m ? (ch.display + ' → ' + m.entry.loc) : ch.display;
-    b.onclick = () => {
-      box.querySelectorAll('.lk-choice').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      selectChoice(ch.key, ch.display);
-    };
-    box.appendChild(b);
-  });
-}
-
-function selectChoice(key, display){
-  const m = findLocation(key);
-  const inp = document.getElementById('lkInput');
-  if(inp) inp.value = m ? m.pn : (display || key);
-  showLookupResult(m ? m.pn : (display || key), m ? m.entry : null);
-  const st = document.getElementById('lkStatus');
-  if(st) st.textContent = m ? ('Found ' + m.pn + ' · ' + locIndexInfo)
-                            : ('No location on file for ' + (display || key));
-}
-
-function doLookup(text){
-  const box = document.getElementById('lkChoices'); if(box) box.innerHTML = '';  // typing overrides photo choices
-  const raw = (text || '').trim();
-  if(!normPN(raw)){ showLookupResult('', null); return; }
-  if(!locIndex){
-    loadLocationIndex();
-    const st = document.getElementById('lkStatus');
-    if(st) st.textContent = 'Loading index…';
-    return;
-  }
-  const m = findLocation(raw);
-  showLookupResult(m ? m.pn : raw, m ? m.entry : null);
-}
-
-let ocrWorker = null;
-async function getOcrWorker(){
-  if(ocrWorker) return ocrWorker;
-  ocrWorker = await Tesseract.createWorker('eng');
-  try{
-    await ocrWorker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-',  // part #s only
-      tessedit_pageseg_mode: '6'                                          // one uniform block
-    });
-  }catch(e){}
-  return ocrWorker;
-}
-
-function _otsu(gray){
-  const hist = new Array(256).fill(0);
-  for(let i = 0; i < gray.length; i++) hist[gray[i]]++;
-  const total = gray.length;
-  let sum = 0; for(let i = 0; i < 256; i++) sum += i * hist[i];
-  let sumB = 0, wB = 0, max = 0, thr = 127;
-  for(let i = 0; i < 256; i++){
-    wB += hist[i]; if(!wB) continue;
-    const wF = total - wB; if(!wF) break;
-    sumB += i * hist[i];
-    const mB = sumB / wB, mF = (sum - sumB) / wF;
-    const between = wB * wF * (mB - mF) * (mB - mF);
-    if(between > max){ max = between; thr = i; }
-  }
-  return thr;
-}
-
-// Focus on the CENTER of the frame (the bracket area you aim at), upscale, and binarize
-// (Otsu threshold) so Tesseract reads crisp black-on-white instead of a noisy full photo.
-function preprocessForOCR(src){
-  const side = Math.min(src.width, src.height) || 1;
-  const cs = Math.round(side * 0.9);                       // center square ≈ the viewfinder
-  const sx = Math.round((src.width - cs) / 2), sy = Math.round((src.height - cs) / 2);
-  const scale = Math.min(3, Math.max(1, 1500 / cs));       // upscale the crop
-  const w = Math.round(cs * scale), h = Math.round(cs * scale);
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(src, sx, sy, cs, cs, 0, 0, w, h);
-  try{
-    const img = ctx.getImageData(0, 0, w, h), d = img.data;
-    const gray = new Uint8ClampedArray(w * h);
-    for(let i = 0, p = 0; i < d.length; i += 4, p++)
-      gray[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    const thr = _otsu(gray);
-    for(let i = 0, p = 0; i < d.length; i += 4, p++){
-      const v = gray[p] > thr ? 255 : 0;                  // black text on white
-      d[i] = d[i + 1] = d[i + 2] = v;
-    }
-    ctx.putImageData(img, 0, 0);
-  }catch(e){}
-  return c;
-}
-
-// crop to the center (bracket area) + upscale, keep color -> best input for cloud OCR
-function cropForOCR(src){
-  const side = Math.min(src.width, src.height) || 1;
-  const cs = Math.round(side * 0.9);
-  const sx = Math.round((src.width - cs) / 2), sy = Math.round((src.height - cs) / 2);
-  const scale = Math.min(2.5, Math.max(1, 1400 / cs));
-  const w = Math.round(cs * scale), h = Math.round(cs * scale);
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  c.getContext('2d').drawImage(src, sx, sy, cs, cs, 0, 0, w, h);
-  return c;
-}
-
-// full frame, just downscaled -> cloud OCR reads the WHOLE label (no clipping the number lines)
-function fullForOCR(src){
-  const maxSide = Math.max(src.width, src.height) || 1;
-  const scale = Math.min(1, 1600 / maxSide);
-  const w = Math.round(src.width * scale), h = Math.round(src.height * scale);
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  c.getContext('2d').drawImage(src, 0, 0, w, h);
-  return c;
-}
-
-async function cloudOCR(canvas){
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-  const form = new FormData();
-  form.append('base64Image', dataUrl);
-  form.append('apikey', OCRSPACE_API_KEY);
-  form.append('OCREngine', '2');          // engine 2 = best for alphanumerics
-  form.append('isOverlayRequired', 'false');
-  const res = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: form });
-  const j = await res.json();
-  if(j && j.OCRExitCode === 1 && j.ParsedResults && j.ParsedResults.length){
-    return j.ParsedResults.map(r => r.ParsedText || '').join(' ');
-  }
-  const em = j && j.ErrorMessage;
-  throw new Error((Array.isArray(em) ? em.join('; ') : em) || 'cloud OCR error');
-}
-
-async function runLookupOCR(canvas){
-  const st = document.getElementById('lkStatus');
-  const inp = document.getElementById('lkInput');
-  // reset the previous read + result on every new photo
-  if(inp) inp.value = '';
-  showLookupResult('', null);
-  { const box = document.getElementById('lkChoices'); if(box) box.innerHTML = ''; }
-  if(st) st.textContent = 'Reading part number…';
-  await loadLocationIndex();
-
-  let text = '';
-  try{
-    text = await cloudOCR(fullForOCR(canvas));                 // cloud OCR reads the whole label
-  }catch(e){
-    if(st) st.textContent = 'Cloud OCR unavailable — trying on-device…';
-    if(window.Tesseract){
-      try{
-        const worker = await getOcrWorker();
-        const { data } = await worker.recognize(preprocessForOCR(canvas));
-        text = (data && data.text) || '';
-      }catch(_){}
-    }
-  }
-  text = (text || '').toUpperCase();
-  if(!text){ if(st) st.textContent = 'Couldn\'t read — type the part # below.'; return; }
-
-  // Build per-LINE candidates so a multi-line tag lets you tap the correct line.
-  const lines = text.split(/[\r\n]+/);
-  const seen = new Set(), choices = [];
-  for(const line of lines){
-    // whole-line join: rebuilds a part # split by spaces/dashes ("E8GZ - 6564 - B" -> E8GZ6564B)
-    const lineKey = normPN(line);
-    if(lineKey.length >= 5 && lineKey.length <= 14 && /[0-9]/.test(lineKey) && !seen.has(lineKey)){
-      seen.add(lineKey); choices.push({ display: line.trim(), key: lineKey });
-    }
-    // plus any standalone code on the line (for lines that carry several numbers)
-    const toks = line.match(/[A-Z0-9\-]{5,}/g) || [];
-    for(const t of toks){
-      const a = normPN(t);
-      if(a.length >= 5 && a !== lineKey && /[0-9]/.test(a) && !seen.has(a)){ seen.add(a); choices.push({ display: t, key: a }); }
-    }
-  }
-  renderChoices(choices);
-  const hit = choices.find(ch => findLocation(ch.key));
-  if(hit){                                    // one candidate is already on file -> show it, keep the rest tappable
-    const box = document.getElementById('lkChoices');
-    if(box){ const btns = box.querySelectorAll('.lk-choice'); const idx = choices.indexOf(hit); if(btns[idx]) btns[idx].classList.add('active'); }
-    selectChoice(hit.key, hit.display);
-  } else if(choices.length){
-    const longest = choices.slice().sort((a, b) => b.key.length - a.key.length)[0];
-    if(inp && longest) inp.value = longest.display;
-    showLookupResult(longest ? longest.display : '', null);
-    if(st) st.textContent = 'No exact match — tap the right part number above, or fix it & Find.';
-  } else {
-    const raw = (text || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-    if(st) st.textContent = raw ? ('Read: "' + raw + '" — no part # found. Type it below.')
-                                : 'Couldn\'t read — type the part # below.';
-  }
-}
-
-function handlePartShot(blob){
   flashShotNumber();
-  const id = ++idCounter;
-  const thumbUrl = URL.createObjectURL(blob);
-  queue.push({ id, status:'queued', mode:'parts', rawBlob: blob, jpgBlob:null, thumbUrl });
-  renderStrip();
-  updateCounts();
-  processQueue();
-}
 
-function addBatchPart(blob){
-  const id = ++idCounter;
-  const thumbUrl = URL.createObjectURL(blob);
-  // held as 'batch' (NOT uploaded) until the location shot finalizes the batch
-  queue.push({ id, status:'batch', mode:'locations', kind:'part', rawBlob:blob, jpgBlob:null, thumbUrl });
-  locBatchN++;
-  flashLoc('PART ' + locBatchN);
-  updateLocUI();
-  renderStrip(); updateCounts();
-}
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const angle = getScreenAngle();
+  // Rotate the saved image so it matches what you saw on screen, rather than
+  // the raw sensor frame (which ignores how the browser rotated the display).
+  const rotation = (angle === 90) ? -90 : (angle === 270 || angle === -90) ? 90 : 0;
 
-function captureLocation(){
-  if(locBatchN === 0){ toast('Shoot at least one part first', true); return; }
-  const video = document.getElementById('video');
-  if(!video.videoWidth){ toast('Camera not ready yet', true); return; }
-  playShutterSound();
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  canvas.toBlob((blob)=> finalizeBatch(blob), 'image/jpeg', 0.9);
-}
-
-function finalizeBatch(shelfBlob){
-  const batchId = Date.now();
-  let seq = 0;
-  for(const it of queue){
-    if(it.status === 'batch' && it.mode === 'locations'){
-      seq++;
-      it.status = 'queued';
-      it.groupId = batchId;
-      it.seq = seq;
-    }
+  if(rotation === 0){
+    canvas.width = vw;
+    canvas.height = vh;
+  } else {
+    canvas.width = vh;   // swap dimensions for a quarter turn
+    canvas.height = vw;
   }
-  const thumbUrl = URL.createObjectURL(shelfBlob);
-  queue.push({ id: ++idCounter, status:'queued', mode:'locations', kind:'shelf',
-               groupId: batchId, rawBlob: shelfBlob, jpgBlob:null, thumbUrl });
-  locDoneCount++;
-  document.getElementById('locDone').textContent = locDoneCount;
-  locBatchN = 0;
-  flashLoc('SHELF ✓');
-  updateLocUI();
-  renderStrip(); updateCounts(); processQueue();
-  toast(accessToken ? ('Batch uploading: ' + seq + ' part(s) + location') : 'Batch saved — sign in to upload');
+  const ctx = canvas.getContext('2d');
+  if(rotation === 0){
+    ctx.drawImage(video, 0, 0);
+  } else {
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(rotation * Math.PI / 180);
+    ctx.drawImage(video, -vw / 2, -vh / 2);
+  }
+
+  canvas.toBlob((blob)=>{
+    const id = ++idCounter;
+    const thumbUrl = URL.createObjectURL(blob);
+    queue.push({ id, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
+    renderStrip();
+    updateCounts();
+    processQueue();
+  }, 'image/jpeg', 0.9);
 }
 
 // ---------- Photoroom processing ----------
 async function processQueue(){
   if(processing) return;
   processing = true;
-  for(const item of queue){
-    if(item.status !== 'queued') continue;
-    item.status = 'processing';
-    renderStrip(); updateCounts();
-    try{
-      const jpgBlob = item.rawBlob; // Photoroom step skipped for now — raw capture goes straight to Drive/download
-      item.jpgBlob = jpgBlob;
-      if(accessToken){
-        await uploadToDrive(item);
-        item.status = 'uploaded';
-        setTimeout(()=>removeItem(item.id), 900);
-      } else {
-        item.status = 'ready';
-      }
-    }catch(e){
-      console.error(e);
-      item.status = 'error';
-      item.errorMsg = e.message || 'Failed';
-      toast('Processing failed: ' + item.errorMsg, true);
-    }
-    renderStrip(); updateCounts();
-  }
-  processing = false;
-}
-
-// ---------- Google Sign-In ----------
-function toggleSetup(){
-  const p = document.getElementById('setupPanel');
-  document.getElementById('originText').textContent = window.location.origin || window.location.href;
-  p.style.display = (p.style.display === 'none') ? 'block' : 'none';
-}
-
-async function saveClientId(){
-  const val = document.getElementById('clientIdInput').value.trim();
-  if(!val){ toast('Paste a Client ID first', true); return; }
-  clientId = val;
-  await persistClientId(val);
-  document.getElementById('setupPanel').style.display = 'none';
-  document.getElementById('signInBtn').style.display = 'flex';
-  toast('Client ID saved. Tap "Sign in with Google" to connect.');
-  initGoogleClient();
-}
-
-function initGoogleClient(){
-  if(!window.google || !clientId) return;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: DRIVE_SCOPE,
-    callback: async (resp)=>{
-      if(resp.error){
-        // silent attempt failed — show the manual sign-in button instead of a dead end
-        if(resp.error !== 'user_logged_out' && resp.error !== 'immediate_failed'){
-          toast('Sign-in failed: ' + resp.error, true);
-        }
-        document.getElementById('signInBtn').style.display = 'flex';
-        return;
-      }
-      accessToken = resp.access_token;
-      await markConsented();
-      setDriveOn(true);
-      toast('Connected to Google Drive');
+  try{
+    // Find the next queued item each pass rather than iterating the array directly —
+    // completed items get removed from the queue, and mutating a list mid-loop
+    // causes entries to be skipped (which stalled uploads).
+    let guard = 0;
+    while(guard++ < 1000){
+      const item = queue.find(i => i.status === 'queued');
+      if(!item) break;
+      item.status = 'processing';
+      renderStrip(); updateCounts();
       try{
-        driveFolderId = await ensureDriveFolder();
-      }catch(e){
-        toast('Could not access Drive folder: ' + e.message, true);
-      }
-      // flush any photos already processed while signed out
-      for(const item of queue){
-        if(item.status === 'ready'){
-          try{
-            await uploadToDrive(item);
-            item.status = 'uploaded';
-            setTimeout(()=>removeItem(item.id), 900);
-          }catch(e){ item.status='error'; item.errorMsg = e.message; }
+        item.jpgBlob = item.rawBlob; // Photoroom step skipped — raw capture goes straight to Drive/download
+        if(accessToken){
+          await uploadToDrive(item);
+          item.status = 'uploaded';
+          setTimeout(()=>removeItem(item.id), 900);
+        } else {
+          item.status = 'ready';
         }
+      }catch(e){
+        console.error(e);
+        item.status = 'error';
+        item.errorMsg = e.message || 'Failed';
+        toast('Upload failed: ' + item.errorMsg, true);
       }
       renderStrip(); updateCounts();
     }
-  });
+  } finally {
+    processing = false;
+  }
+  // If anything arrived while we were busy, pick it up now instead of stalling.
+  if(queue.some(i => i.status === 'queued')){
+    setTimeout(processQueue, 100);
+  }
 }
 
-function signIn(){
-  if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
-  tokenClient.requestAccessToken();
+// ---------- Drive auth (via your own backend, no browser popups needed) ----------
+function toggleSetup(){
+  const p = document.getElementById('setupPanel');
+  const isHidden = window.getComputedStyle(p).display === 'none';
+  p.style.display = isHidden ? 'block' : 'none';
 }
+
+async function saveBackendConfig(){
+  const url = document.getElementById('backendUrlInput').value.trim().replace(/\/$/, '');
+  const secret = document.getElementById('appSecretInput').value.trim();
+  if(!url || !secret){ toast('Enter both the backend URL and secret', true); return; }
+  backendUrl = url;
+  appSecret = secret;
+  const saved = persistBackendConfig(url, secret);
+  document.getElementById('setupPanel').style.display = 'none';
+  if(!saved){
+    toast('Connecting, but settings could not be saved for next time', true);
+  }
+  fetchAccessToken();
+}
+
+async function fetchAccessToken(){
+  if(!backendUrl || !appSecret){
+    document.getElementById('signInBtn').style.visibility = 'visible';
+    return;
+  }
+  try{
+    toast('Connecting to Drive (server may take a moment to wake)...');
+    const res = await fetchWithTimeout(backendUrl + '/token', {
+      headers: { 'x-app-secret': appSecret }
+    }, 60000); // Render free tier can take ~50s to wake from sleep
+    const data = await res.json();
+    if(!res.ok || !data.access_token){
+      accessToken = null;
+      setDriveOn(false);
+      if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+      document.getElementById('signInBtn').style.visibility = 'visible';
+      if(data.error === 'not_connected'){
+        toast('Drive not connected yet — visit ' + backendUrl + '/auth/start once in a browser', true);
+      } else {
+        toast('Could not reach token server: ' + (data.error || res.status), true);
+      }
+      return;
+    }
+    accessToken = data.access_token;
+    setDriveOn(true);
+    scheduleTokenRefresh();
+    try{
+      driveFolderId = await ensureDriveFolder();
+    }catch(e){
+      toast('Could not access Drive folder: ' + e.message, true);
+    }
+    // flush any photos already processed while disconnected
+    for(const item of queue){
+      if(item.status === 'ready'){
+        try{
+          await uploadToDrive(item);
+          item.status = 'uploaded';
+          setTimeout(()=>removeItem(item.id), 900);
+        }catch(e){ item.status='error'; item.errorMsg = e.message; }
+      }
+    }
+    renderStrip(); updateCounts();
+  }catch(e){
+    accessToken = null;
+    setDriveOn(false);
+    document.getElementById('signInBtn').style.visibility = 'visible';
+    toast('Could not reach token server: ' + e.message, true);
+  }
+}
+
+let tokenRefreshTimer = null;
+function scheduleTokenRefresh(){
+  if(tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+  // Google access tokens last ~60 min — refresh well before that, automatically, while the app is open
+  tokenRefreshTimer = setTimeout(fetchAccessToken, 45 * 60 * 1000);
+}
+
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && backendUrl && appSecret){
+    // coming back into the app — make sure the Drive session is still good
+    fetchAccessToken();
+  }
+});
 
 function setDriveOn(on){
   const pill = document.getElementById('drivePill');
   document.getElementById('drivePillText').textContent = on ? 'Drive on' : 'Drive off';
   pill.className = 'drive-pill' + (on ? ' on' : '');
-  document.getElementById('signInBtn').style.display = on ? 'none' : (clientId ? 'flex' : 'none');
-  document.getElementById('uploadAllBtn').style.display = on ? 'block' : 'none';
+  // visibility (not display) so these never change the layout's height
+  document.getElementById('signInBtn').style.visibility = on ? 'hidden' : (backendUrl ? 'visible' : 'hidden');
+  document.getElementById('uploadAllBtn').style.visibility = on ? 'visible' : 'hidden';
 }
 
 // ---------- Drive upload ----------
-async function ensureFolder(name, parentId){
-  let q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  if(parentId){ q += ` and '${parentId}' in parents`; }
-  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+function fetchWithTimeout(url, options, timeoutMs = 25000){
+  // Deliberately avoids AbortSignal — some environments can't serialize it across frames
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject)=> setTimeout(()=> reject(new Error('Timed out — check connection')), timeoutMs))
+  ]);
+}
+
+async function ensureDriveFolder(){
+  const q = encodeURIComponent(`name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const searchRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
+  if(searchRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder search'); }
   const searchData = await searchRes.json();
   if(searchData.files && searchData.files.length){
     return searchData.files[0].id;
   }
-  const body = { name, mimeType: 'application/vnd.google-apps.folder' };
-  if(parentId){ body.parents = [parentId]; }
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetchWithTimeout('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
   });
+  if(createRes.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401 during folder create'); }
   const createData = await createRes.json();
   return createData.id;
 }
 
-async function ensureDriveFolder(){
-  return ensureFolder(DRIVE_FOLDER_NAME);
-}
-
-// "Location Updates" lives INSIDE "Ford Parts Photos" so it inherits that folder's
-// service-account share (the Ford Lister desktop tool reads it), and the parts
-// pipeline -- which only scans direct children for ford-part-*.jpg -- never sees it.
-async function ensureLocationFolder(){
-  // drive.file scope only sees folders THIS app created, so a NAME-ONLY search reliably
-  // returns our single "Location Updates" folder no matter where it's moved in Drive.
-  // This prevents duplicate folders if it's ever dragged out of "Ford Parts Photos".
-  try{
-    const q = `name='${LOCATION_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const d = await res.json();
-    if(d.files && d.files.length) return d.files[0].id;
-  }catch(e){}
-  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
-  return ensureFolder(LOCATION_FOLDER_NAME, driveFolderId);   // none yet -> create under Ford Parts Photos
+function handleDriveAuthFailure(){
+  accessToken = null;
+  setDriveOn(false);
+  fetchAccessToken(); // try to recover via the backend for the next attempt
 }
 
 async function uploadToDrive(item){
-  let folderId, name;
-  if(item.mode === 'locations'){
-    if(!locationFolderId){ locationFolderId = await ensureLocationFolder(); }
-    folderId = locationFolderId;
-    if(item.kind === 'shelf'){
-      name = `loc-${item.groupId}-shelf.jpg`;                              // one shelf per batch
-    } else {
-      name = `loc-${item.groupId}-part-${String(item.seq || 1).padStart(2, '0')}.jpg`;  // batch part NN
-    }
-  } else {
-    if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
-    folderId = driveFolderId;
-    name = `ford-part-${item.id}-${Date.now()}.jpg`;
-  }
-  const metadata = { name, parents: [folderId] };
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+  const metadata = {
+    name: `ford-part-${item.id}-${Date.now()}.jpg`,
+    parents: [driveFolderId]
+  };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
   form.append('file', item.jpgBlob);
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+  const res = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form
-  });
+  }, 45000);
   if(!res.ok){
     const text = await res.text().catch(()=>'');
+    if(res.status === 401){
+      handleDriveAuthFailure();
+    }
     throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
   }
 }
@@ -1040,7 +608,6 @@ async function uploadToDrive(item){
 function removeItem(id){
   const idx = queue.findIndex(q=>q.id===id);
   if(idx>-1){
-    if(queue[idx].status === 'batch' && locBatchN > 0){ locBatchN--; updateLocUI(); }
     URL.revokeObjectURL(queue[idx].thumbUrl);
     queue.splice(idx,1);
     renderStrip(); updateCounts();
@@ -1053,13 +620,8 @@ function renderStrip(){
   queue.forEach(item=>{
     const div = document.createElement('div');
     div.className = 'thumb';
-    const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error' || item.status === 'batch');
-    const badgeTxt = (item.mode === 'locations')
-      ? (item.status === 'uploaded' ? (item.kind === 'part' ? 'PART ✓' : 'SHELF ✓')
-         : item.status === 'error' ? 'Retry'
-         : (item.kind === 'part' ? 'PART' : 'SHELF'))
-      : labelFor(item.status);
-    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${badgeTxt}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
+    const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error');
+    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${labelFor(item.status)}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
     if(item.status === 'error'){
       div.querySelector('img').onclick = ()=>{ item.status='queued'; item.errorMsg=null; renderStrip(); updateCounts(); processQueue(); };
     }
@@ -1087,12 +649,35 @@ function updateCounts(){
   document.getElementById('cProc').textContent = queue.filter(i=>i.status==='processing').length;
   document.getElementById('cDone').textContent = queue.filter(i=>i.status==='uploaded').length;
   document.getElementById('cErr').textContent = queue.filter(i=>i.status==='error').length;
-  document.getElementById('downloadAllBtn').style.display = queue.some(i=>i.status==='ready') ? 'block' : (queue.length ? 'block' : 'none');
+  // visibility (not display) so the button never changes the layout's height
+  const dl = document.getElementById('downloadAllBtn');
+  dl.style.visibility = queue.length ? 'visible' : 'hidden';
 }
 
-function downloadReady(){
+async function downloadReady(){
   const ready = queue.filter(i=>i.jpgBlob);
   if(!ready.length){ toast('No processed photos yet', true); return; }
+
+  // iOS Safari ignores the download attribute and opens images in a tab instead.
+  // The share sheet gives a real "Save to Files" / "Save Image" option.
+  const files = ready.map(item => new File(
+    [item.jpgBlob],
+    `ford-part-${item.id}.jpg`,
+    { type: 'image/jpeg' }
+  ));
+
+  if(navigator.canShare && navigator.canShare({ files })){
+    try{
+      await navigator.share({ files });
+      ready.forEach(item => { if(item.status === 'ready') removeItem(item.id); });
+      return;
+    }catch(e){
+      if(e && e.name === 'AbortError') return; // user dismissed the sheet
+      // otherwise fall through to the classic download below
+    }
+  }
+
+  // Fallback for desktop browsers
   ready.forEach((item, i)=>{
     setTimeout(()=>{
       const a = document.createElement('a');
@@ -1108,27 +693,17 @@ function downloadReady(){
 
 // ---------- init ----------
 window.addEventListener('load', async ()=>{
-  document.querySelector('.brand small').textContent = 'FORD OEM · LABEL CAPTURE · ' + APP_VERSION;
-  sizeViewfinder();
   startCamera();
-  clientId = await loadClientId();
-  if(!clientId){
-    clientId = DEFAULT_CLIENT_ID;
-    await persistClientId(clientId);
+  const cfg = loadBackendConfig();
+  backendUrl = cfg.url;
+  appSecret = cfg.secret;
+  if(backendUrl) document.getElementById('backendUrlInput').value = backendUrl;
+  if(appSecret) document.getElementById('appSecretInput').value = appSecret;
+  if(backendUrl && appSecret){
+    fetchAccessToken();
+  } else {
+    document.getElementById('signInBtn').style.visibility = 'visible';
   }
-  document.getElementById('clientIdInput').value = clientId;
-  const check = setInterval(async ()=>{
-    if(window.google){
-      clearInterval(check);
-      initGoogleClient();
-      const consented = await hasConsentedBefore();
-      if(consented && tokenClient){
-        tokenClient.requestAccessToken({ prompt: '' }); // silent — reuses existing Google session, no popup if still valid
-      } else {
-        document.getElementById('signInBtn').style.display = 'flex';
-      }
-    }
-  }, 200);
   updateCounts();
 });
 </script>
