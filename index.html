@@ -476,6 +476,8 @@ async function saveBackendConfig(){
 async function fetchAccessToken(){
   if(!backendUrl || !appSecret){
     document.getElementById('signInBtn').style.visibility = 'visible';
+    toast('Enter your token server address and secret to connect', true);
+    document.getElementById('setupPanel').style.display = 'block';
     return;
   }
   try{
