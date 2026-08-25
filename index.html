@@ -287,7 +287,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.5';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v1.6';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -674,7 +674,10 @@ function handleDriveAuthFailure(){
 async function uploadToDrive(item){
   if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
   const metadata = {
-    name: `ford-part-${item.id}-${Date.now()}.jpg`,
+    // Pad the shot number so Drive's name sort matches shot order. Unpadded, the folder
+    // reads 1, 10, 11, 12, 2, 20... which scrambles every item. The desktop parses the
+    // number with int(), so '006' and '6' are identical to it.
+    name: `ford-part-${String(item.id).padStart(3, '0')}-${Date.now()}.jpg`,
     parents: [driveFolderId]
   };
   const form = new FormData();
