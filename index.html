@@ -150,6 +150,22 @@
   .dims-grid input:focus{outline:none;border-color:var(--orange);}
   .dims-last{font-size:11px;color:var(--text-dim);margin:0 0 10px;min-height:14px;}
 
+  .loc-list{max-height:52vh;overflow-y:auto;margin:0 0 10px;-webkit-overflow-scrolling:touch;}
+  .loc-row{
+    display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);
+    border-radius:8px;margin-bottom:7px;background:var(--panel-alt);cursor:pointer;
+  }
+  .loc-row:active{border-color:var(--orange);}
+  .loc-row img,.loc-row .noimg{
+    width:54px;height:54px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--panel);
+  }
+  .loc-row .noimg{display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-dim);}
+  .loc-row .meta{flex:1;min-width:0;}
+  .loc-row .d{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);}
+  .loc-row .t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
+  .loc-row .go{font-size:11px;color:var(--orange);white-space:nowrap;}
+  .loc-empty{font-size:12px;color:var(--text-dim);text-align:center;padding:18px 6px;}
+
   .toast{
     position:absolute;bottom:90px;left:16px;right:16px;background:var(--panel-alt);border:1px solid var(--line);
     border-radius:8px;padding:9px 12px;font-size:12px;color:var(--text);display:none;z-index:20;
@@ -200,6 +216,12 @@
     <input type="text" id="appSecretInput" placeholder="App shared secret" autocapitalize="off" autocorrect="off" spellcheck="false">
     <button class="btn btn-primary" onclick="saveBackendConfig()" style="width:100%;">Save & Connect Drive</button>
     <button class="btn btn-secondary" onclick="toggleSetup()" style="width:100%; margin-top:6px;">Cancel</button>
+  </div>
+
+  <div id="locPanel" class="setup-panel" style="display:none;">
+    <p>Parts waiting for a shelf. Tap one to set where it went.</p>
+    <div class="loc-list" id="locList"></div>
+    <button class="btn btn-secondary" onclick="toggleLocations()" style="width:100%;">Close</button>
   </div>
 
   <div id="dimsPanel" class="setup-panel" style="display:none;">
@@ -254,6 +276,7 @@
     <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="visibility:hidden;">Upload All to Drive</button>
     <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()" style="visibility:hidden;">Save photos to phone</button>
     <button class="btn btn-secondary" id="dimsBtn" onclick="toggleDims()">Dimensions &amp; weight</button>
+    <button class="btn btn-secondary" id="locPendBtn" onclick="toggleLocations()">Assign shelf locations</button>
     <a class="btn btn-secondary" id="locBtn" href="parts-cam-locations.html"
        style="display:block;text-decoration:none;">Shelf locations</a>
   </footer>
@@ -263,7 +286,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.2';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v1.3';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -764,6 +787,108 @@ async function saveDims(btn){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = 'Save dimensions'; }
   }
+}
+
+// ---------- shelf locations ----------
+// A photo carrying dims is an item's LAST photo, so "has dims, no location yet" is
+// exactly the queue of parts still waiting for a shelf -- no extra bookkeeping needed.
+const DIMS_RE  = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-([A-Za-z0-9._~\-]+))?\.jpe?g$/i;
+
+function encodeLoc(raw){
+  // '/' is illegal in a filename; the desktop turns '~' back into '/'.
+  return String(raw || '').trim().toUpperCase().replace(/\s+/g, '')
+    .replace(/\//g, '~').replace(/[^A-Z0-9._~\-]/g, '');
+}
+
+async function driveList(){
+  const params = new URLSearchParams({
+    q: "name contains 'ford-part-' and trashed=false",
+    fields: 'files(id,name,createdTime,thumbnailLink)',
+    orderBy: 'createdTime desc',
+    pageSize: '100'
+  });
+  const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  }, 25000);
+  if(res.status === 401){ handleDriveAuthFailure(); throw new Error('Drive 401'); }
+  if(!res.ok) throw new Error(`Drive ${res.status}`);
+  return (await res.json()).files || [];
+}
+
+async function thumbFor(f, img){
+  if(!f.thumbnailLink) return;
+  try{
+    const r = await fetch(f.thumbnailLink, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if(!r.ok) return;
+    img.src = URL.createObjectURL(await r.blob());
+    img.style.display = '';
+    img.nextElementSibling && (img.nextElementSibling.style.display = 'none');
+  }catch(e){ /* placeholder stays */ }
+}
+
+async function loadPendingLocations(){
+  const list = document.getElementById('locList');
+  list.innerHTML = '<div class="loc-empty">Loading...</div>';
+  let files;
+  try{ files = await driveList(); }
+  catch(e){ list.innerHTML = `<div class="loc-empty">Could not read Drive: ${e.message}</div>`; return; }
+
+  const pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[5]; });
+  if(!pending.length){
+    list.innerHTML = '<div class="loc-empty">Nothing waiting. Parts appear here once you save dimensions.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for(const f of pending){
+    const m = DIMS_RE.exec(f.name);
+    const when = new Date(f.createdTime).toLocaleString([], {month:'short', day:'numeric',
+                                                           hour:'numeric', minute:'2-digit'});
+    const row = document.createElement('div');
+    row.className = 'loc-row';
+    row.innerHTML = `<img alt="" style="display:none"><div class="noimg">no img</div>
+      <div class="meta"><div class="d">${m[1]} x ${m[2]} x ${m[3]} in &middot; ${m[4]} lb</div>
+      <div class="t">${when}</div></div><div class="go">set &rsaquo;</div>`;
+    row.onclick = () => assignLocation(f, row);
+    list.appendChild(row);
+    thumbFor(f, row.querySelector('img'));
+  }
+}
+
+async function assignLocation(f, row){
+  const raw = prompt('Shelf location for this part:', '');
+  if(raw === null) return;
+  const loc = encodeLoc(raw);
+  if(!loc){ toast('Enter a shelf location', true); return; }
+  const newName = f.name.replace(/\.jpe?g$/i, '') + '-' + loc + '.jpg';
+  row.style.opacity = '0.5';
+  try{
+    const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${f.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    }, 20000);
+    if(res.status === 401){ handleDriveAuthFailure(); throw new Error('401'); }
+    if(!res.ok) throw new Error(`Drive ${res.status}`);
+    toast(`Shelf ${loc.replace(/~/g, '/')} saved`);
+    row.remove();
+    if(!document.getElementById('locList').children.length){
+      document.getElementById('locList').innerHTML =
+        '<div class="loc-empty">All parts have a shelf location.</div>';
+    }
+  }catch(e){
+    console.error(e);
+    row.style.opacity = '1';
+    toast('Could not save location: ' + (e.message || 'error'), true);
+  }
+}
+
+function toggleLocations(){
+  const el = document.getElementById('locPanel');
+  const showing = el.style.display !== 'none';
+  el.style.display = showing ? 'none' : 'block';
+  if(showing) return;
+  if(!accessToken){ toast('Connect Drive first', true); el.style.display = 'none'; return; }
+  loadPendingLocations();
 }
 
 // ---------- UI ----------
