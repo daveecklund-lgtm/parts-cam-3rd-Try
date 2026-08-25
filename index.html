@@ -287,7 +287,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.4';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v1.5';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -841,15 +841,16 @@ async function driveList(){
   return (await res.json()).files || [];
 }
 
-async function thumbFor(f, img){
-  if(!f.thumbnailLink) return;
-  try{
-    const r = await fetch(f.thumbnailLink, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if(!r.ok) return;
-    img.src = URL.createObjectURL(await r.blob());
-    img.style.display = '';
-    img.nextElementSibling && (img.nextElementSibling.style.display = 'none');
-  }catch(e){ /* placeholder stays */ }
+function thumbFor(f, img, placeholder){
+  // Drive's thumbnailLink is a SIGNED, already-public URL: no Authorization header
+  // needed, and it sends no Access-Control-Allow-Origin -- so fetch() is blocked by
+  // CORS while a plain <img src> loads fine. referrerPolicy matters too: googleusercontent
+  // returns 403 for some referrers.
+  if(!f.thumbnailLink){ return; }
+  img.referrerPolicy = 'no-referrer';
+  img.onload = () => { img.style.display = ''; if(placeholder) placeholder.style.display = 'none'; };
+  img.onerror = () => { if(placeholder) placeholder.textContent = 'no img'; };
+  img.src = f.thumbnailLink;
 }
 
 async function loadPendingLocations(){
@@ -871,12 +872,12 @@ async function loadPendingLocations(){
                                                            hour:'numeric', minute:'2-digit'});
     const row = document.createElement('div');
     row.className = 'loc-row';
-    row.innerHTML = `<img alt="" style="display:none"><div class="noimg">no img</div>
+    row.innerHTML = `<img alt="" style="display:none"><div class="noimg">...</div>
       <div class="meta"><div class="d">${m[1]} x ${m[2]} x ${m[3]} in &middot; ${m[4]} lb</div>
       <div class="t">${when}</div></div><div class="go">set &rsaquo;</div>`;
     row.onclick = () => assignLocation(f, row);
     list.appendChild(row);
-    thumbFor(f, row.querySelector('img'));
+    thumbFor(f, row.querySelector('img'), row.querySelector('.noimg'));
   }
 }
 
