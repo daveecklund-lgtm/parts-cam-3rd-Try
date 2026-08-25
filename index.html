@@ -36,6 +36,11 @@
   .brand .mark{width:10px;height:10px;background:var(--orange);border-radius:2px;transform:rotate(45deg);}
   .brand h1{font-family:'Oswald',sans-serif;font-size:19px;letter-spacing:0.04em;font-weight:600;margin:0;text-transform:uppercase;}
   .brand small{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);letter-spacing:0.05em;}
+  .ver{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--text-dim);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:7px;
+    letter-spacing:0.04em;vertical-align:middle;white-space:nowrap;
+  }
 
   .drive-pill{
     font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:5px 10px;border-radius:20px;
@@ -45,14 +50,6 @@
   .drive-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim);}
   .drive-pill.on{color:var(--success);border-color:rgba(95,174,110,0.4);}
   .drive-pill.on .dot{background:var(--success);}
-
-  .spec-strip{
-    display:flex;gap:0;margin:0 16px 10px;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-shrink:0;
-  }
-  .spec{flex:1;padding:7px 8px;text-align:center;border-right:1px solid var(--line);}
-  .spec:last-child{border-right:none;}
-  .spec .k{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;}
-  .spec .v{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-top:2px;font-weight:600;}
 
   .viewfinder-wrap{
     flex:0 0 auto; position:relative; margin:0 16px; height:360px;
@@ -187,7 +184,7 @@
     <div class="brand">
       <div class="mark"></div>
       <div>
-        <h1>Parts Cam</h1>
+        <h1>Parts Cam<span class="ver" id="appVer"></span></h1>
         <small>FORD OEM &middot; LABEL CAPTURE</small>
       </div>
     </div>
@@ -196,12 +193,6 @@
       <span id="drivePillText">Drive off</span>
     </div>
   </header>
-
-  <div class="spec-strip">
-    <div class="spec"><div class="k">BG</div><div class="v">Skipped</div></div>
-    <div class="spec"><div class="k">Edit</div><div class="v">Photoroom app</div></div>
-    <div class="spec"><div class="k">Out</div><div class="v">Raw JPG</div></div>
-  </div>
 
   <div id="setupPanel" class="setup-panel" style="display:none;">
     <p>Paste in your token server's address and shared secret (from your Render deployment). One-time setup — after this, Drive stays connected permanently.</p>
@@ -263,6 +254,8 @@
     <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="visibility:hidden;">Upload All to Drive</button>
     <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()" style="visibility:hidden;">Save photos to phone</button>
     <button class="btn btn-secondary" id="dimsBtn" onclick="toggleDims()">Dimensions &amp; weight</button>
+    <a class="btn btn-secondary" id="locBtn" href="parts-cam-locations.html"
+       style="display:block;text-decoration:none;">Shelf locations</a>
   </footer>
 
 </div>
@@ -270,6 +263,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
+const APP_VERSION = 'v1.2';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -326,6 +320,11 @@ function toast(msg, isError){
 }
 
 // ---------- storage: remember backend config across sessions ----------
+(function showVersion(){
+  const el = document.getElementById('appVer');
+  if(el) el.textContent = APP_VERSION;
+})();
+
 function loadBackendConfig(){
   try{
     return {
@@ -405,6 +404,9 @@ function capturePhoto(){
   if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
   playShutterSound();
   flashShotNumber();
+  // shotCount cycles 1..6 per part and is reset by "New Part". idCounter never resets,
+  // so a modulo on it drifts out of sync the moment New Part is used.
+  const shotForThisPhoto = shotCount;
 
   const vw = video.videoWidth;
   const vh = video.videoHeight;
@@ -437,10 +439,9 @@ function capturePhoto(){
     renderStrip();
     updateCounts();
     processQueue();
-    // Shot numbers run continuously across a session (6, 12, 18...), so every
-    // multiple of PHOTOS_PER_ITEM is an item's last photo -- the one the dimensions
-    // get written onto. Prompt there so nothing has to be remembered.
-    if(id % PHOTOS_PER_ITEM === 0){
+    // The last photo of the part is the one the dimensions get written onto,
+    // so prompt there and nothing has to be remembered.
+    if(shotForThisPhoto === PHOTOS_PER_ITEM){
       setTimeout(()=>{
         if(document.getElementById('dimsPanel').style.display === 'none') toggleDims();
       }, 450);
