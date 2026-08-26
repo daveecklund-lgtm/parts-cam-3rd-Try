@@ -287,12 +287,25 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.6';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v1.7';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
 let queue = [];          // {id, status, rawBlob, jpgBlob, thumbUrl}
-let idCounter = 0;
+let idCounter = (() => {
+  // MUST persist: iOS reloads backgrounded tabs on its own, and an in-memory counter
+  // restarts at 0. Two products then share shot numbers inside one session and the
+  // desktop's grouping interleaves their photos into the wrong listings.
+  try{
+    const v = parseInt(localStorage.getItem('partsCamShotCounter') || '0', 10);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }catch(e){ return 0; }
+})();
+function bumpCounter(){
+  const n = ++idCounter;
+  try{ localStorage.setItem('partsCamShotCounter', String(n)); }catch(e){}
+  return n;
+}
 let shotCount = 0;       // cycles 1-5 per part, resets automatically
 let backendUrl = null;
 let appSecret = null;
@@ -481,10 +494,11 @@ function capturePhoto(){
     ctx.drawImage(video, -vw / 2, -vh / 2);
   }
 
+  const capturedMs = Date.now();   // capture time; uploads finish out of order
   canvas.toBlob((blob)=>{
-    const id = ++idCounter;
+    const id = bumpCounter();
     const thumbUrl = URL.createObjectURL(blob);
-    queue.push({ id, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
+    queue.push({ id, capturedMs, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
     renderStrip();
     updateCounts();
     processQueue();
@@ -677,7 +691,7 @@ async function uploadToDrive(item){
     // Pad the shot number so Drive's name sort matches shot order. Unpadded, the folder
     // reads 1, 10, 11, 12, 2, 20... which scrambles every item. The desktop parses the
     // number with int(), so '006' and '6' are identical to it.
-    name: `ford-part-${String(item.id).padStart(3, '0')}-${Date.now()}.jpg`,
+    name: `ford-part-${String(item.id).padStart(3, '0')}-${item.capturedMs || Date.now()}.jpg`,
     parents: [driveFolderId]
   };
   const form = new FormData();
