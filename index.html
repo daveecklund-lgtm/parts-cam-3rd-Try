@@ -158,14 +158,21 @@
   }
   .loc-row:active{border-color:var(--orange);}
   .loc-row img,.loc-row .noimg{
-    width:54px;height:54px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--panel);
+    width:96px;height:96px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--panel);
   }
   .loc-row .noimg{display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-dim);}
   .loc-row .meta{flex:1;min-width:0;}
-  .loc-row .d{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);}
+  .loc-row .d{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--text);}
   .loc-row .t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);margin-top:2px;}
   .loc-row .go{font-size:11px;color:var(--orange);white-space:nowrap;}
   .loc-empty{font-size:12px;color:var(--text-dim);text-align:center;padding:18px 6px;}
+  .loc-edit{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+  .loc-edit input{
+    width:96px;padding:9px 8px;background:var(--panel);border:1px solid var(--orange);
+    border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;
+    font-size:15px;text-align:center;text-transform:uppercase;margin:0;
+  }
+  .loc-edit .btn{padding:9px 12px;font-size:12px;}
 
   .toast{
     position:absolute;bottom:90px;left:16px;right:16px;background:var(--panel-alt);border:1px solid var(--line);
@@ -222,7 +229,8 @@
   <div id="locPanel" class="setup-panel" style="display:none;">
     <p>Parts waiting for a shelf. Tap one to set where it went.</p>
     <div class="loc-list" id="locList"></div>
-    <button class="btn btn-secondary" onclick="toggleLocations()" style="width:100%;">Close</button>
+    <button class="btn btn-secondary" onclick="loadPendingLocations()" style="width:100%;margin-bottom:6px;">Refresh list</button>
+    <button class="btn btn-primary" onclick="toggleLocations()" style="width:100%;">Done</button>
   </div>
 
   <div id="dimsPanel" class="setup-panel" style="display:none;">
@@ -287,7 +295,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.7';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v1.9';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -431,15 +439,29 @@ function isCameraLive(){
   return tracks.length > 0 && tracks[0].readyState === 'live';
 }
 
+// A live track does NOT mean the viewfinder is running: iOS pauses the <video> element
+// behind native dialogs and overlays, and it does not resume on its own. isCameraLive()
+// only inspects the track, so the old check passed and the preview stayed frozen until
+// the app was closed. Check playback as well.
+function stopCamera(){
+  const video = document.getElementById('video');
+  const s = video.srcObject;
+  if(s){ s.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+}
+
+function reviveCamera(){
+  const video = document.getElementById('video');
+  if(!isCameraLive()){ startCamera(); return; }
+  if(video.paused || video.readyState < 2){
+    video.play().catch(()=>{ startCamera(); });
+  }
+}
+
 // When returning to the tab/app (foreground, unlock, etc), make sure the feed is still actually live
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible' && !isCameraLive()){
-    startCamera();
-  }
+  if(document.visibilityState === 'visible'){ reviveCamera(); }
 });
-window.addEventListener('pageshow', ()=>{
-  if(!isCameraLive()) startCamera();
-});
+window.addEventListener('pageshow', ()=>{ reviveCamera(); });
 
 function newPart(){
   shotCount = 0;
@@ -744,6 +766,7 @@ function toggleDims(){
   const el = document.getElementById('dimsPanel');
   const showing = el.style.display !== 'none';
   el.style.display = showing ? 'none' : 'block';
+  if(showing) reviveCamera();
   if(!showing){
     document.getElementById('dimsLast').textContent = lastDimsMsg;
     document.getElementById('dimL').focus();
@@ -823,6 +846,7 @@ async function saveDims(btn){
     lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb`;
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('dimsPanel').style.display = 'none';
+    reviveCamera();
     toast(`Saved ${L} x ${W} x ${H}, ${wt} lb (${how})`);
   }catch(e){
     console.error(e);
@@ -843,9 +867,12 @@ function encodeLoc(raw){
     .replace(/\//g, '~').replace(/[^A-Z0-9._~\-]/g, '');
 }
 
+const LOC_MAX_ROWS = 12;
+
 async function driveList(){
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
   const params = new URLSearchParams({
-    q: "name contains 'ford-part-' and trashed=false",
+    q: `'${driveFolderId}' in parents and name contains 'ford-part-' and trashed=false`,
     fields: 'files(id,name,createdTime,thumbnailLink)',
     orderBy: 'createdTime desc',
     pageSize: '100'
@@ -865,9 +892,10 @@ function thumbFor(f, img, placeholder){
   // returns 403 for some referrers.
   if(!f.thumbnailLink){ return; }
   img.referrerPolicy = 'no-referrer';
+  img.loading = 'lazy';
   img.onload = () => { img.style.display = ''; if(placeholder) placeholder.style.display = 'none'; };
   img.onerror = () => { if(placeholder) placeholder.textContent = 'no img'; };
-  img.src = f.thumbnailLink;
+  img.src = f.thumbnailLink.replace(/=s\d+$/, '=s400');
 }
 
 async function loadPendingLocations(){
@@ -877,12 +905,20 @@ async function loadPendingLocations(){
   try{ files = await driveList(); }
   catch(e){ list.innerHTML = `<div class="loc-empty">Could not read Drive: ${e.message}</div>`; return; }
 
-  const pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[5]; });
+  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[5]; });
+  const total = pending.length;
+  pending = pending.slice(0, LOC_MAX_ROWS);   // newest first; cap so the tab cannot be OOM-killed
   if(!pending.length){
     list.innerHTML = '<div class="loc-empty">Nothing waiting. Parts appear here once you save dimensions.</div>';
     return;
   }
   list.innerHTML = '';
+  if(total > pending.length){
+    const note = document.createElement('div');
+    note.className = 'loc-empty';
+    note.textContent = `showing the newest ${pending.length} of ${total} — save some, then reopen`;
+    list.appendChild(note);
+  }
   for(const f of pending){
     const m = DIMS_RE.exec(f.name);
     const when = new Date(f.createdTime).toLocaleString([], {month:'short', day:'numeric',
@@ -898,12 +934,29 @@ async function loadPendingLocations(){
   }
 }
 
-async function assignLocation(f, row){
-  const raw = prompt('Shelf location for this part:', '');
-  if(raw === null) return;
-  const loc = encodeLoc(raw);
-  if(!loc){ toast('Enter a shelf location', true); return; }
+function assignLocation(f, row){
+  // Deliberately NOT prompt(): a native dialog pauses the camera behind the page and it
+  // stays frozen until the app is reopened. Inline entry keeps the page in control.
+  if(row.querySelector('input')) return;             // already editing this row
+  const go = row.querySelector('.go');
+  const editor = document.createElement('div');
+  editor.className = 'loc-edit';
+  editor.innerHTML = '<input type="text" placeholder="shelf" autocapitalize="characters" ' +
+                     'autocorrect="off" spellcheck="false"><button class="btn btn-primary">Save</button>';
+  go.replaceWith(editor);
+  const input = editor.querySelector('input');
+  const btn = editor.querySelector('button');
+  editor.onclick = e => e.stopPropagation();
+  input.onkeydown = e => { if(e.key === 'Enter'){ e.preventDefault(); commitLocation(f, row, input, btn); } };
+  btn.onclick = e => { e.stopPropagation(); commitLocation(f, row, input, btn); };
+  input.focus();
+}
+
+async function commitLocation(f, row, input, btn){
+  const loc = encodeLoc(input.value);
+  if(!loc){ toast('Enter a shelf location', true); input.focus(); return; }
   const newName = f.name.replace(/\.jpe?g$/i, '') + '-' + loc + '.jpg';
+  btn.disabled = true; btn.textContent = '...';
   row.style.opacity = '0.5';
   try{
     const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${f.id}`, {
@@ -922,6 +975,7 @@ async function assignLocation(f, row){
   }catch(e){
     console.error(e);
     row.style.opacity = '1';
+    btn.disabled = false; btn.textContent = 'Save';
     toast('Could not save location: ' + (e.message || 'error'), true);
   }
 }
@@ -930,8 +984,9 @@ function toggleLocations(){
   const el = document.getElementById('locPanel');
   const showing = el.style.display !== 'none';
   el.style.display = showing ? 'none' : 'block';
-  if(showing) return;
+  if(showing){ reviveCamera(); return; }          // closing -> camera back on
   if(!accessToken){ toast('Connect Drive first', true); el.style.display = 'none'; return; }
+  stopCamera();                                    // free the stream while the list is up
   loadPendingLocations();
 }
 
