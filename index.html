@@ -150,6 +150,16 @@
   }
   .dims-grid input:focus{outline:none;border-color:var(--orange);}
   .dims-last{font-size:11px;color:var(--text-dim);margin:0 0 10px;min-height:14px;}
+  .dims-shelf{display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;}
+  .dims-shelf .f{flex:1;}
+  .dims-shelf label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:3px;letter-spacing:0.03em;}
+  .dims-shelf input{
+    width:100%;padding:11px 10px;background:var(--panel-alt);border:1px solid var(--line);
+    border-radius:7px;color:var(--text);font-family:'IBM Plex Mono',monospace;
+    font-size:17px;text-align:center;text-transform:uppercase;margin:0;
+  }
+  .dims-shelf input:focus{outline:none;border-color:var(--orange);}
+  .dims-shelf .btn{padding:11px 14px;font-size:12.5px;white-space:nowrap;}
 
   .loc-list{max-height:52vh;overflow-y:auto;margin:0 0 10px;-webkit-overflow-scrolling:touch;}
   .loc-row{
@@ -237,10 +247,16 @@
     <p>Package size and weight for the item you just shot. Saved to Drive with a timestamp
        Whole inches and whole pounds. Written onto the last photo's name.</p>
     <div class="dims-grid">
-      <div><label>LENGTH</label><input type="number" inputmode="numeric" step="1" min="1" id="dimL" placeholder="in"></div>
-      <div><label>WIDTH</label><input type="number" inputmode="numeric" step="1" min="1" id="dimW" placeholder="in"></div>
-      <div><label>HEIGHT</label><input type="number" inputmode="numeric" step="1" min="1" id="dimH" placeholder="in"></div>
-      <div><label>WEIGHT</label><input type="number" inputmode="numeric" step="1" min="1" id="dimWt" placeholder="lb"></div>
+      <div><label>LENGTH</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimL" placeholder="in" autocomplete="off"></div>
+      <div><label>WIDTH</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimW" placeholder="in" autocomplete="off"></div>
+      <div><label>HEIGHT</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimH" placeholder="in" autocomplete="off"></div>
+      <div><label>WEIGHT</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimWt" placeholder="lb" autocomplete="off"></div>
+    </div>
+    <div class="dims-shelf">
+      <div class="f"><label>SHELF LOCATION (optional)</label>
+        <input type="text" id="dimLoc" placeholder="e.g. 55A" autocapitalize="characters"
+               autocorrect="off" spellcheck="false" autocomplete="off"></div>
+      <button class="btn btn-secondary" onclick="skipShelf(this)">Skip</button>
     </div>
     <p class="dims-last" id="dimsLast"></p>
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
@@ -295,7 +311,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v1.9';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.1';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -491,6 +507,11 @@ function capturePhoto(){
   // shotCount cycles 1..6 per part and is reset by "New Part". idCounter never resets,
   // so a modulo on it drifts out of sync the moment New Part is used.
   const shotForThisPhoto = shotCount;
+  if(shotForThisPhoto === PHOTOS_PER_ITEM){
+    // Must happen inside the tap handler: iOS only raises the keyboard when focus()
+    // runs in a user gesture, and the toBlob/setTimeout path has already left it.
+    openDimsForEntry();
+  }
 
   const vw = video.videoWidth;
   const vh = video.videoHeight;
@@ -524,13 +545,6 @@ function capturePhoto(){
     renderStrip();
     updateCounts();
     processQueue();
-    // The last photo of the part is the one the dimensions get written onto,
-    // so prompt there and nothing has to be remembered.
-    if(shotForThisPhoto === PHOTOS_PER_ITEM){
-      setTimeout(()=>{
-        if(document.getElementById('dimsPanel').style.display === 'none') toggleDims();
-      }, 450);
-    }
   }, 'image/jpeg', 0.9);
 }
 
@@ -762,6 +776,42 @@ async function uploadDims(dims){
   }
 }
 
+const DIMS_ADVANCE_MS = 2000;   // pause this long and focus jumps to the next box
+const DIM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt', 'dimLoc'];
+let dimsAdvanceTimer = null;
+
+function openDimsForEntry(){
+  const el = document.getElementById('dimsPanel');
+  el.style.display = 'block';
+  document.getElementById('dimsLast').textContent = lastDimsMsg;
+  DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+  const first = document.getElementById('dimL');
+  first.focus();
+  try{ first.setSelectionRange(0, 0); }catch(e){}
+}
+
+function wireDimsAutoAdvance(){
+  DIM_FIELDS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      if(id !== 'dimLoc') el.value = el.value.replace(/[^0-9]/g, '');   // keypads emit stray chars
+      clearTimeout(dimsAdvanceTimer);
+      if(!el.value) return;                            // nothing typed yet -- don't move on
+      dimsAdvanceTimer = setTimeout(() => {
+        const next = DIM_FIELDS[i + 1];
+        if(next){
+          document.getElementById(next).focus();
+        }else{
+          el.blur();                                   // last box: drop the pad, Save is in reach
+        }
+      }, DIMS_ADVANCE_MS);
+    });
+    // a manual tap elsewhere cancels a pending jump so focus never moves under his finger
+    el.addEventListener('blur', () => clearTimeout(dimsAdvanceTimer));
+  });
+}
+wireDimsAutoAdvance();
+
 function toggleDims(){
   const el = document.getElementById('dimsPanel');
   const showing = el.style.display !== 'none';
@@ -770,6 +820,8 @@ function toggleDims(){
   if(!showing){
     document.getElementById('dimsLast').textContent = lastDimsMsg;
     document.getElementById('dimL').focus();
+  }else{
+    clearTimeout(dimsAdvanceTimer);
   }
 }
 
@@ -789,12 +841,12 @@ function waitForUploads(timeoutMs = 40000){
   });
 }
 
-async function renameWithDims(L, W, H, wt){
+async function renameWithDims(L, W, H, wt, loc){
   // Encode as a suffix: ford-part-<shot>-<epoch>-<L>x<W>x<H>x<lb>.jpg
   // parse_ts/parse_seq on the desktop both use re.search, so the extra suffix is
   // invisible to photo grouping -- the numbers just ride along on the item's own photo.
   const base = lastUpload.name.replace(/\.jpg$/i, '');
-  const newName = `${base}-${L}x${W}x${H}x${wt}.jpg`;
+  const newName = `${base}-${L}x${W}x${H}x${wt}${loc ? '-' + loc : ''}.jpg`;
   const res = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${lastUpload.id}`, {
       method: 'PATCH',
@@ -809,6 +861,15 @@ async function renameWithDims(L, W, H, wt){
   return newName;
 }
 
+function skipShelf(btn){
+  // Explicit "no shelf yet" -- the item stays in the phone's Assign shelf locations
+  // list for the warehouse trip.
+  clearTimeout(dimsAdvanceTimer);
+  document.getElementById('dimLoc').value = '';
+  document.getElementById('dimLoc').blur();
+  saveDims(document.querySelector('#dimsPanel .btn-primary'));
+}
+
 async function saveDims(btn){
   const num = id => {
     const raw = document.getElementById(id).value.trim();
@@ -817,6 +878,7 @@ async function saveDims(btn){
     return (Number.isInteger(v) && v > 0) ? v : NaN;
   };
   const L = num('dimL'), W = num('dimW'), H = num('dimH'), wt = num('dimWt');
+  const loc = encodeLoc(document.getElementById('dimLoc').value);
   if([L,W,H,wt].some(v => v === null)){ toast('Fill in all four boxes', true); return; }
   if([L,W,H,wt].some(v => isNaN(v))){ toast('Whole numbers only, greater than zero', true); return; }
   if(!accessToken){ toast('Connect Drive first', true); return; }
@@ -833,17 +895,19 @@ async function saveDims(btn){
     if(!lastUpload){ toast('No uploaded photo to name', true); return; }
     let how;
     try{
-      await renameWithDims(L, W, H, wt);
-      how = 'on photo name';
+      await renameWithDims(L, W, H, wt, loc);
+      how = loc ? `on photo name, shelf ${loc.replace(/~/g, '/')}` : 'on photo name';
     }catch(e){
       // Rename failed (photo already moved, permissions, offline). Fall back to a
       // sidecar record rather than losing the numbers Dave just typed.
       console.error(e);
       await uploadDims({ length_in:L, width_in:W, height_in:H, weight_lb:wt,
+                         location: loc ? loc.replace(/~/g, '/') : '',
                          captured_ms: Date.now(), source:'parts-cam' });
       how = 'as separate record';
     }
-    lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb`;
+    lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb` +
+                  (loc ? `  @ ${loc.replace(/~/g, '/')}` : '');
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('dimsPanel').style.display = 'none';
     reviveCamera();
