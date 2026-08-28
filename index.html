@@ -160,6 +160,13 @@
   }
   .dims-shelf input:focus{outline:none;border-color:var(--orange);}
   .dims-shelf .btn{padding:11px 14px;font-size:12.5px;white-space:nowrap;}
+  .loc-keys{display:flex;gap:6px;margin:0 0 10px;}
+  .loc-keys button{
+    flex:1;padding:10px 0;background:var(--panel-alt);border:1px solid var(--line);
+    border-radius:7px;color:var(--text);font-family:'IBM Plex Mono',monospace;
+    font-size:14px;cursor:pointer;
+  }
+  .loc-keys button:active{border-color:var(--orange);color:var(--orange);}
 
   .loc-list{max-height:52vh;overflow-y:auto;margin:0 0 10px;-webkit-overflow-scrolling:touch;}
   .loc-row{
@@ -254,9 +261,18 @@
     </div>
     <div class="dims-shelf">
       <div class="f"><label>SHELF LOCATION (optional)</label>
-        <input type="text" id="dimLoc" placeholder="e.g. 55A" autocapitalize="characters"
-               autocorrect="off" spellcheck="false" autocomplete="off"></div>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" id="dimLoc"
+               placeholder="e.g. 55A" autocapitalize="characters" autocorrect="off"
+               spellcheck="false" autocomplete="off"></div>
       <button class="btn btn-secondary" onclick="skipShelf(this)">Skip</button>
+    </div>
+    <div class="loc-keys" id="locKeys">
+      <button type="button" data-k="GC">GC</button>
+      <button type="button" data-k="A">A</button>
+      <button type="button" data-k="B">B</button>
+      <button type="button" data-k="C">C</button>
+      <button type="button" data-k="D">D</button>
+      <button type="button" data-k="BS">&#9003;</button>
     </div>
     <p class="dims-last" id="dimsLast"></p>
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
@@ -311,7 +327,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.1';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.3';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -776,7 +792,7 @@ async function uploadDims(dims){
   }
 }
 
-const DIMS_ADVANCE_MS = 2000;   // pause this long and focus jumps to the next box
+const DIMS_ADVANCE_MS = 1000;   // pause this long and focus jumps to the next box
 const DIM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt', 'dimLoc'];
 let dimsAdvanceTimer = null;
 
@@ -811,6 +827,24 @@ function wireDimsAutoAdvance(){
   });
 }
 wireDimsAutoAdvance();
+
+(function wireLocKeys(){
+  const keys = document.getElementById('locKeys');
+  if(!keys) return;
+  // preventDefault on press keeps focus in the input, so the number pad stays up
+  const hold = e => e.preventDefault();
+  keys.addEventListener('mousedown', hold);
+  keys.addEventListener('touchstart', hold, {passive:false});
+  keys.addEventListener('click', e => {
+    const b = e.target.closest('button[data-k]');
+    if(!b) return;
+    const el = document.getElementById('dimLoc');
+    el.value = b.dataset.k === 'BS' ? el.value.slice(0, -1)
+                                    : (el.value + b.dataset.k).toUpperCase();
+    el.focus();
+    el.dispatchEvent(new Event('input'));   // restarts the idle timer
+  });
+})();
 
 function toggleDims(){
   const el = document.getElementById('dimsPanel');
