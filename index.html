@@ -327,7 +327,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.3';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.4';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -831,18 +831,34 @@ wireDimsAutoAdvance();
 (function wireLocKeys(){
   const keys = document.getElementById('locKeys');
   if(!keys) return;
-  // preventDefault on press keeps focus in the input, so the number pad stays up
-  const hold = e => e.preventDefault();
-  keys.addEventListener('mousedown', hold);
-  keys.addEventListener('touchstart', hold, {passive:false});
-  keys.addEventListener('click', e => {
+
+  function applyKey(k){
+    const el = document.getElementById('dimLoc');
+    el.value = k === 'BS' ? el.value.slice(0, -1)
+                          : (el.value + k).toUpperCase();
+    el.focus();                              // keeps / re-raises the number pad
+    el.dispatchEvent(new Event('input'));    // restarts the idle timer
+  }
+
+  // Act on POINTERDOWN, not click. Preventing touchstart's default (the previous
+  // approach) stops iOS synthesising a click at all, so the chips did nothing on the
+  // phone while still working with a mouse. pointerdown covers touch and mouse, and
+  // preventing its default keeps focus in the field so the keypad never drops.
+  let handledAt = 0;
+  keys.addEventListener('pointerdown', e => {
     const b = e.target.closest('button[data-k]');
     if(!b) return;
-    const el = document.getElementById('dimLoc');
-    el.value = b.dataset.k === 'BS' ? el.value.slice(0, -1)
-                                    : (el.value + b.dataset.k).toUpperCase();
-    el.focus();
-    el.dispatchEvent(new Event('input'));   // restarts the idle timer
+    e.preventDefault();
+    handledAt = Date.now();
+    applyKey(b.dataset.k);
+  });
+
+  // Fallback for anything that does not deliver pointer events; ignored when
+  // pointerdown already handled this press.
+  keys.addEventListener('click', e => {
+    const b = e.target.closest('button[data-k]');
+    if(!b || Date.now() - handledAt < 700) return;
+    applyKey(b.dataset.k);
   });
 })();
 
