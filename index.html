@@ -167,6 +167,22 @@
     font-size:14px;cursor:pointer;
   }
   .loc-keys button:active{border-color:var(--orange);color:var(--orange);}
+  .qty-row{display:flex;align-items:center;gap:10px;margin:0 0 10px;}
+  .qty-row .lbl{font-size:10.5px;color:var(--text-dim);letter-spacing:0.03em;flex:1;}
+  .qty-step{display:flex;align-items:center;gap:0;}
+  .qty-step button{
+    width:44px;padding:9px 0;background:var(--panel-alt);border:1px solid var(--line);
+    color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:18px;cursor:pointer;
+  }
+  .qty-step button:first-child{border-radius:7px 0 0 7px;}
+  .qty-step button:last-child{border-radius:0 7px 7px 0;}
+  .qty-step button:active{border-color:var(--orange);color:var(--orange);}
+  .qty-step .val{
+    min-width:52px;text-align:center;padding:9px 0;background:var(--panel);
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace;font-size:18px;
+  }
+  .qty-step .val.on{color:var(--orange);}
 
   .loc-list{max-height:52vh;overflow-y:auto;margin:0 0 10px;-webkit-overflow-scrolling:touch;}
   .loc-row{
@@ -264,7 +280,6 @@
         <input type="text" inputmode="numeric" pattern="[0-9]*" id="dimLoc"
                placeholder="e.g. 55A" autocapitalize="characters" autocorrect="off"
                spellcheck="false" autocomplete="off"></div>
-      <button class="btn btn-secondary" onclick="skipShelf(this)">Skip</button>
     </div>
     <div class="loc-keys" id="locKeys">
       <button type="button" data-k="GC">GC</button>
@@ -274,8 +289,17 @@
       <button type="button" data-k="D">D</button>
       <button type="button" data-k="BS">&#9003;</button>
     </div>
+    <div class="qty-row">
+      <div class="lbl">QTY ON HAND</div>
+      <div class="qty-step" id="qtyStep">
+        <button type="button" data-q="-1">&minus;</button>
+        <div class="val" id="qtyVal">1</div>
+        <button type="button" data-q="1">+</button>
+      </div>
+    </div>
     <p class="dims-last" id="dimsLast"></p>
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
+    <button class="btn btn-secondary" onclick="skipShelf(this)" style="width:100%;margin-top:6px;">Save without shelf</button>
     <button class="btn btn-secondary" onclick="toggleDims()" style="width:100%; margin-top:6px;">Cancel</button>
   </div>
 
@@ -327,7 +351,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.4';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.5';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -792,7 +816,8 @@ async function uploadDims(dims){
   }
 }
 
-const DIMS_ADVANCE_MS = 1000;   // pause this long and focus jumps to the next box
+const DIMS_ADVANCE_MS = 600;    // pause this long and focus jumps to the next box
+const NUM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt'];   // shelf is deliberately excluded
 const DIM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt', 'dimLoc'];
 let dimsAdvanceTimer = null;
 
@@ -801,6 +826,7 @@ function openDimsForEntry(){
   el.style.display = 'block';
   document.getElementById('dimsLast').textContent = lastDimsMsg;
   DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+  setQty(1);                                   // default: nothing to touch for a single unit
   const first = document.getElementById('dimL');
   first.focus();
   try{ first.setSelectionRange(0, 0); }catch(e){}
@@ -813,13 +839,12 @@ function wireDimsAutoAdvance(){
       if(id !== 'dimLoc') el.value = el.value.replace(/[^0-9]/g, '');   // keypads emit stray chars
       clearTimeout(dimsAdvanceTimer);
       if(!el.value) return;                            // nothing typed yet -- don't move on
+      // The shelf box never auto-advances or auto-blurs -- letters arrive by chip tap,
+      // and a timer firing mid-entry made it feel jumpy.
+      if(id === 'dimLoc') return;
       dimsAdvanceTimer = setTimeout(() => {
         const next = DIM_FIELDS[i + 1];
-        if(next){
-          document.getElementById(next).focus();
-        }else{
-          el.blur();                                   // last box: drop the pad, Save is in reach
-        }
+        if(next) document.getElementById(next).focus();
       }, DIMS_ADVANCE_MS);
     });
     // a manual tap elsewhere cancels a pending jump so focus never moves under his finger
@@ -891,12 +916,13 @@ function waitForUploads(timeoutMs = 40000){
   });
 }
 
-async function renameWithDims(L, W, H, wt, loc){
+async function renameWithDims(L, W, H, wt, loc, qty){
   // Encode as a suffix: ford-part-<shot>-<epoch>-<L>x<W>x<H>x<lb>.jpg
   // parse_ts/parse_seq on the desktop both use re.search, so the extra suffix is
   // invisible to photo grouping -- the numbers just ride along on the item's own photo.
   const base = lastUpload.name.replace(/\.jpg$/i, '');
-  const newName = `${base}-${L}x${W}x${H}x${wt}${loc ? '-' + loc : ''}.jpg`;
+  const q = (qty && qty > 1) ? `-q${qty}` : '';
+  const newName = `${base}-${L}x${W}x${H}x${wt}${q}${loc ? '-' + loc : ''}.jpg`;
   const res = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${lastUpload.id}`, {
       method: 'PATCH',
@@ -910,6 +936,26 @@ async function renameWithDims(L, W, H, wt, loc){
   lastUpload.name = newName;
   return newName;
 }
+
+let onHandQty = 1;
+
+function setQty(v){
+  onHandQty = Math.max(1, Math.min(99, v));
+  const el = document.getElementById('qtyVal');
+  el.textContent = onHandQty;
+  el.classList.toggle('on', onHandQty > 1);   // highlight only when it is not the default
+}
+
+(function wireQty(){
+  const step = document.getElementById('qtyStep');
+  if(!step) return;
+  step.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-q]');
+    if(!b) return;
+    e.preventDefault();                        // keep focus / keypad where it is
+    setQty(onHandQty + parseInt(b.dataset.q, 10));
+  });
+})();
 
 function skipShelf(btn){
   // Explicit "no shelf yet" -- the item stays in the phone's Assign shelf locations
@@ -945,18 +991,19 @@ async function saveDims(btn){
     if(!lastUpload){ toast('No uploaded photo to name', true); return; }
     let how;
     try{
-      await renameWithDims(L, W, H, wt, loc);
+      await renameWithDims(L, W, H, wt, loc, onHandQty);
       how = loc ? `on photo name, shelf ${loc.replace(/~/g, '/')}` : 'on photo name';
     }catch(e){
       // Rename failed (photo already moved, permissions, offline). Fall back to a
       // sidecar record rather than losing the numbers Dave just typed.
       console.error(e);
       await uploadDims({ length_in:L, width_in:W, height_in:H, weight_lb:wt,
-                         location: loc ? loc.replace(/~/g, '/') : '',
+                         location: loc ? loc.replace(/~/g, '/') : '', units_on_hand: onHandQty,
                          captured_ms: Date.now(), source:'parts-cam' });
       how = 'as separate record';
     }
     lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb` +
+                  (onHandQty > 1 ? `  x${onHandQty}` : '') +
                   (loc ? `  @ ${loc.replace(/~/g, '/')}` : '');
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('dimsPanel').style.display = 'none';
