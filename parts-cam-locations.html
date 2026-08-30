@@ -958,16 +958,63 @@ function initGoogleClient(){
   });
 }
 
-function signIn(){
-  if(!tokenClient){ toast('Enter your Client ID first', true); toggleSetup(); return; }
-  tokenClient.requestAccessToken();
+// Auth now goes through the same token server the camera page uses, reading the same
+// localStorage keys. Previously this page ran its own Google Identity sign-in, so being
+// connected on the camera page did nothing here and Drive asked to log in again.
+function loadBackendConfig(){
+  try{
+    return { url: localStorage.getItem('driveBackendUrl') || null,
+             secret: localStorage.getItem('driveAppSecret') || null };
+  }catch(e){ return { url:null, secret:null }; }
 }
+
+async function fetchAccessToken(){
+  const { url, secret } = loadBackendConfig();
+  if(!url || !secret){
+    toast('Connect Drive on the Camera page first', true);
+    return;
+  }
+  try{
+    toast('Connecting to Drive (server may take a moment to wake)...');
+    const res = await fetch(url + '/token', { headers: { 'x-app-secret': secret } });
+    const data = await res.json();
+    if(!res.ok || !data.access_token){
+      accessToken = null; setDriveOn(false);
+      toast('Could not reach token server: ' + (data.error || res.status), true);
+      return;
+    }
+    accessToken = data.access_token;
+    setDriveOn(true);
+    toast('Connected to Google Drive');
+    try{
+      driveFolderId = data.folder_id || await ensureDriveFolder();
+    }catch(e){
+      toast('Could not access Drive folder: ' + e.message, true);
+    }
+    // flush anything that finished processing while disconnected
+    for(const item of queue){
+      if(item.status === 'ready'){
+        try{
+          await uploadToDrive(item);
+          item.status = 'uploaded';
+          setTimeout(()=>removeItem(item.id), 900);
+        }catch(e){ item.status='error'; item.errorMsg = e.message; }
+      }
+    }
+    renderStrip(); updateCounts();
+  }catch(e){
+    accessToken = null; setDriveOn(false);
+    toast('Token server unreachable: ' + (e.message || 'error'), true);
+  }
+}
+
+function signIn(){ fetchAccessToken(); }
 
 function setDriveOn(on){
   const pill = document.getElementById('drivePill');
   document.getElementById('drivePillText').textContent = on ? 'Drive on' : 'Drive off';
   pill.className = 'drive-pill' + (on ? ' on' : '');
-  document.getElementById('signInBtn').style.display = on ? 'none' : (clientId ? 'flex' : 'none');
+  document.getElementById('signInBtn').style.display = on ? 'none' : 'flex';
   document.getElementById('uploadAllBtn').style.display = on ? 'block' : 'none';
 }
 
@@ -1127,18 +1174,7 @@ window.addEventListener('load', async ()=>{
     await persistClientId(clientId);
   }
   document.getElementById('clientIdInput').value = clientId;
-  const check = setInterval(async ()=>{
-    if(window.google){
-      clearInterval(check);
-      initGoogleClient();
-      const consented = await hasConsentedBefore();
-      if(consented && tokenClient){
-        tokenClient.requestAccessToken({ prompt: '' }); // silent — reuses existing Google session, no popup if still valid
-      } else {
-        document.getElementById('signInBtn').style.display = 'flex';
-      }
-    }
-  }, 200);
+  fetchAccessToken();          // same token server as the camera page -- no popup
   updateCounts();
 });
 </script>
