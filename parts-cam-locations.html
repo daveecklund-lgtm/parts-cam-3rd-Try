@@ -278,8 +278,7 @@
 
   <div class="mode-seg" id="modeSeg">
     <a class="mode-btn" href="index.html" style="text-decoration:none;line-height:1.6;">Camera</a>
-    <button class="mode-btn active" data-mode="parts" onclick="setMode('parts')">Parts</button>
-    <button class="mode-btn" data-mode="locations" onclick="setMode('locations')">Locations</button>
+    <button class="mode-btn active" data-mode="locations" onclick="setMode('locations')">Locations</button>
     <button class="mode-btn" data-mode="lookup" onclick="setMode('lookup')">Lookup</button>
   </div>
 
@@ -503,9 +502,8 @@ function newPart(){
 // buttons on the camera page go straight where they say they will.
 window.addEventListener('DOMContentLoaded', () => {
   const want = (location.hash || '').replace('#', '');
-  if(want === 'locations' || want === 'lookup' || want === 'parts'){
-    try{ setMode(want); }catch(e){}
-  }
+  // 'parts' is deliberately not accepted: that camera is superseded by index.html.
+  try{ setMode(want === 'lookup' ? 'lookup' : 'locations'); }catch(e){}
 });
 
 function setMode(m){
