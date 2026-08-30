@@ -277,6 +277,7 @@
   </header>
 
   <div class="mode-seg" id="modeSeg">
+    <a class="mode-btn" href="index.html" style="text-decoration:none;line-height:1.6;">Camera</a>
     <button class="mode-btn active" data-mode="parts" onclick="setMode('parts')">Parts</button>
     <button class="mode-btn" data-mode="locations" onclick="setMode('locations')">Locations</button>
     <button class="mode-btn" data-mode="lookup" onclick="setMode('lookup')">Lookup</button>
@@ -498,6 +499,15 @@ function newPart(){
 }
 
 // ---------- mode: Parts vs Locations ----------
+// index.html links here as #locations / #lookup -- honour that on load so the mode
+// buttons on the camera page go straight where they say they will.
+window.addEventListener('DOMContentLoaded', () => {
+  const want = (location.hash || '').replace('#', '');
+  if(want === 'locations' || want === 'lookup' || want === 'parts'){
+    try{ setMode(want); }catch(e){}
+  }
+});
+
 function setMode(m){
   mode = m;
   // discard any unfinished location-batch parts when switching modes

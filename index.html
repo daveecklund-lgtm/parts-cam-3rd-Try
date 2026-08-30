@@ -43,6 +43,15 @@
   }
   .ver.stale{color:#1c1d1f;background:var(--orange);border-color:var(--orange);}
 
+  .mode-seg{display:flex;gap:8px;margin:0 16px 10px;flex-shrink:0;}
+  .mode-btn{
+    flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.05em;
+    text-transform:uppercase;padding:8px 6px;border-radius:8px;cursor:pointer;
+    background:var(--panel);border:1px solid var(--line);color:var(--text-dim);
+    text-align:center;text-decoration:none;display:block;
+  }
+  .mode-btn.active{background:var(--orange);border-color:var(--orange);color:#1c1d1f;font-weight:600;}
+
   .drive-pill{
     font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:5px 10px;border-radius:20px;
     display:flex;align-items:center;gap:6px;cursor:pointer;border:1px solid var(--line);background:var(--panel);
@@ -303,6 +312,12 @@
     <button class="btn btn-secondary" onclick="toggleDims()" style="width:100%; margin-top:6px;">Cancel</button>
   </div>
 
+  <div class="mode-seg">
+    <span class="mode-btn active">Camera</span>
+    <a class="mode-btn" href="parts-cam-locations.html#locations">Locations</a>
+    <a class="mode-btn" href="parts-cam-locations.html#lookup">Lookup</a>
+  </div>
+
   <div class="viewfinder-wrap">
     <div class="viewfinder-square" id="vfSquare">
       <video id="video" autoplay playsinline muted></video>
@@ -341,6 +356,7 @@
     <button class="btn btn-primary" id="uploadAllBtn" onclick="processQueue()" style="visibility:hidden;">Upload All to Drive</button>
     <button class="btn btn-secondary" id="downloadAllBtn" onclick="downloadReady()" style="visibility:hidden;">Save photos to phone</button>
     <button class="btn btn-secondary" id="dimsBtn" onclick="toggleDims()">Dimensions &amp; weight</button>
+    <button class="btn btn-secondary" id="editLastBtn" onclick="editLastItem()">Edit last item</button>
     <button class="btn btn-secondary" id="locPendBtn" onclick="toggleLocations()">Assign shelf locations</button>
     <a class="btn btn-secondary" id="locBtn" href="parts-cam-locations.html"
        style="display:block;text-decoration:none;">Shelf locations</a>
@@ -351,7 +367,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.5';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.6';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -788,11 +804,21 @@ async function uploadToDrive(item){
   // Remember it so "Dimensions & weight" can rename this photo afterwards.
   try{
     const info = await res.json();
-    if(info && info.id) lastUpload = { id: info.id, name: metadata.name };
+    if(info && info.id) setLastUpload({ id: info.id, name: metadata.name });
   }catch(e){ /* rename simply falls back to a sidecar file */ }
 }
 
-let lastUpload = null;
+let lastUpload = (() => {
+  // Persisted: if the tab reloads (a bump, an iOS background eviction) an in-memory
+  // value is gone and the just-shot item can no longer be given dimensions or fixed.
+  try{ return JSON.parse(localStorage.getItem('partsCamLastUpload') || 'null'); }
+  catch(e){ return null; }
+})();
+
+function setLastUpload(v){
+  lastUpload = v;
+  try{ localStorage.setItem('partsCamLastUpload', JSON.stringify(v)); }catch(e){}
+}
 
 // ---------- dimensions ----------
 // Uploaded as ford-dims-<epoch>.json, NOT ford-part-*, so it stays invisible to the
@@ -920,7 +946,7 @@ async function renameWithDims(L, W, H, wt, loc, qty){
   // Encode as a suffix: ford-part-<shot>-<epoch>-<L>x<W>x<H>x<lb>.jpg
   // parse_ts/parse_seq on the desktop both use re.search, so the extra suffix is
   // invisible to photo grouping -- the numbers just ride along on the item's own photo.
-  const base = lastUpload.name.replace(/\.jpg$/i, '');
+  const base = stripDims(lastUpload.name).replace(/\.jpg$/i, '');
   const q = (qty && qty > 1) ? `-q${qty}` : '';
   const newName = `${base}-${L}x${W}x${H}x${wt}${q}${loc ? '-' + loc : ''}.jpg`;
   const res = await fetchWithTimeout(
@@ -933,7 +959,7 @@ async function renameWithDims(L, W, H, wt, loc, qty){
     if(res.status === 401){ handleDriveAuthFailure(); }
     throw new Error(`rename ${res.status}`);
   }
-  lastUpload.name = newName;
+  setLastUpload({ id: lastUpload.id, name: newName });
   return newName;
 }
 
@@ -956,6 +982,27 @@ function setQty(v){
     setQty(onHandQty + parseInt(b.dataset.q, 10));
   });
 })();
+
+function editLastItem(){
+  if(!lastUpload){ toast('Nothing logged yet on this phone', true); return; }
+  const m = DIMS_RE.exec(lastUpload.name);
+  document.getElementById('dimsPanel').style.display = 'block';
+  if(m){
+    document.getElementById('dimL').value = m[1];
+    document.getElementById('dimW').value = m[2];
+    document.getElementById('dimH').value = m[3];
+    document.getElementById('dimWt').value = m[4];
+    setQty(m[5] ? parseInt(m[5], 10) : 1);
+    document.getElementById('dimLoc').value = (m[6] || '').replace(/~/g, '/');
+    toast('Editing the last item -- change anything and save again');
+  }else{
+    DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+    setQty(1);
+    toast('Last photo has no dimensions yet -- enter them now');
+  }
+  document.getElementById('dimsLast').textContent = lastDimsMsg;
+  document.getElementById('dimL').focus();
+}
 
 function skipShelf(btn){
   // Explicit "no shelf yet" -- the item stays in the phone's Assign shelf locations
@@ -1020,7 +1067,15 @@ async function saveDims(btn){
 // ---------- shelf locations ----------
 // A photo carrying dims is an item's LAST photo, so "has dims, no location yet" is
 // exactly the queue of parts still waiting for a shelf -- no extra bookkeeping needed.
-const DIMS_RE  = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-([A-Za-z0-9._~\-]+))?\.jpe?g$/i;
+// No /i flag: the qty marker is strictly lowercase 'q' so it can never be confused
+// with an uppercase shelf code such as Q5.
+const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-q(\d+))?(?:-([A-Za-z0-9._~\-]+))?\.(?:jpe?g|JPE?G)$/;
+
+function stripDims(name){
+  // Re-saving must REPLACE the old suffix, never stack a second one on top.
+  const m = DIMS_RE.exec(name);
+  return m ? name.slice(0, m.index) + name.slice(name.lastIndexOf('.')) : name;
+}
 
 function encodeLoc(raw){
   // '/' is illegal in a filename; the desktop turns '~' back into '/'.
@@ -1066,7 +1121,7 @@ async function loadPendingLocations(){
   try{ files = await driveList(); }
   catch(e){ list.innerHTML = `<div class="loc-empty">Could not read Drive: ${e.message}</div>`; return; }
 
-  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[5]; });
+  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[6]; });
   const total = pending.length;
   pending = pending.slice(0, LOC_MAX_ROWS);   // newest first; cap so the tab cannot be OOM-killed
   if(!pending.length){
