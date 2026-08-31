@@ -360,14 +360,14 @@
     </div>
     <div class="lk-qty" id="lkQty">
       <div class="row">
-        <div class="lbl">ADD TO LISTED QTY</div>
+        <div class="lbl">ADD TO LISTED QTY<br><span style="color:#6a6d73">only if already listed</span></div>
         <div class="step" id="lkQtyStep">
           <button type="button" data-q="-1">&minus;</button>
           <div class="val" id="lkQtyVal">1</div>
           <button type="button" data-q="1">+</button>
         </div>
       </div>
-      <button class="btn btn-primary" id="lkQtyBtn" onclick="queueQtyBump()">Queue for desktop</button>
+      <button class="btn btn-primary" id="lkQtyBtn" onclick="queueQtyBump()">Request qty bump</button>
       <div class="done" id="lkQtyDone"></div>
     </div>
     <div class="lk-inputrow">
@@ -396,7 +396,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v14";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v15";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -693,14 +693,14 @@ async function queueQtyBump(){
       throw new Error('Drive ' + res.status);
     }
     document.getElementById('lkQtyDone').textContent =
-      `queued +${lkQtyN} for ${lkQtyPart} -- apply it on the desktop`;
+      `requested +${lkQtyN} for ${lkQtyPart} -- the desktop applies it if the part is listed`;
     toast(`Queued +${lkQtyN} for ${lkQtyPart}`);
     setLkQty(1);
   }catch(e){
     console.error(e);
     toast('Could not queue: ' + (e.message || 'error'), true);
   }finally{
-    btn.disabled = false; btn.textContent = 'Queue for desktop';
+    btn.disabled = false; btn.textContent = 'Request qty bump';
   }
 }
 
