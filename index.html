@@ -171,9 +171,9 @@
   .dims-shelf .btn{padding:11px 14px;font-size:12.5px;white-space:nowrap;}
   .loc-keys{display:flex;gap:6px;margin:0 0 10px;}
   .loc-keys button{
-    flex:1;padding:10px 0;background:var(--panel-alt);border:1px solid var(--line);
+    flex:1;min-width:0;padding:10px 2px;background:var(--panel-alt);border:1px solid var(--line);
     border-radius:7px;color:var(--text);font-family:'IBM Plex Mono',monospace;
-    font-size:14px;cursor:pointer;
+    font-size:13px;cursor:pointer;
   }
   .loc-keys button:active{border-color:var(--orange);color:var(--orange);}
   .qty-row{display:flex;align-items:center;gap:10px;margin:0 0 10px;}
@@ -301,6 +301,7 @@
     </div>
     <div class="loc-keys" id="locKeys">
       <button type="button" data-k="GC">GC</button>
+      <button type="button" data-k="GS">GS</button>
       <button type="button" data-k="A">A</button>
       <button type="button" data-k="B">B</button>
       <button type="button" data-k="C">C</button>
@@ -386,7 +387,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.7';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.8';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
