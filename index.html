@@ -192,6 +192,15 @@
     font-family:'IBM Plex Mono',monospace;font-size:18px;
   }
   .qty-step .val.on{color:var(--orange);}
+  .cond-row{margin:0 0 10px;}
+  .cond-row .lbl{font-size:10.5px;color:var(--text-dim);letter-spacing:0.03em;margin-bottom:4px;}
+  .cond-keys{display:flex;gap:5px;}
+  .cond-keys button{
+    flex:1;padding:9px 0;background:var(--panel-alt);border:1px solid var(--line);
+    border-radius:7px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;
+    font-size:11px;cursor:pointer;
+  }
+  .cond-keys button.on{background:var(--orange);border-color:var(--orange);color:#1c1d1f;font-weight:600;}
 
   .loc-list{max-height:52vh;overflow-y:auto;margin:0 0 10px;-webkit-overflow-scrolling:touch;}
   .loc-row{
@@ -298,6 +307,16 @@
       <button type="button" data-k="D">D</button>
       <button type="button" data-k="BS">&#9003;</button>
     </div>
+    <div class="cond-row">
+      <div class="lbl">CONDITION</div>
+      <div class="cond-keys" id="condKeys">
+        <button type="button" data-c="" class="on">New</button>
+        <button type="button" data-c="no">New oth</button>
+        <button type="button" data-c="ru">Rusty</button>
+        <button type="button" data-c="us">Used</button>
+        <button type="button" data-c="fp">Parts</button>
+      </div>
+    </div>
     <div class="qty-row">
       <div class="lbl">QTY ON HAND</div>
       <div class="qty-step" id="qtyStep">
@@ -367,7 +386,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v2.6';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v2.7';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -853,6 +872,7 @@ function openDimsForEntry(){
   document.getElementById('dimsLast').textContent = lastDimsMsg;
   DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
   setQty(1);                                   // default: nothing to touch for a single unit
+  setCond('');                                 // default: New
   const first = document.getElementById('dimL');
   first.focus();
   try{ first.setSelectionRange(0, 0); }catch(e){}
@@ -948,7 +968,8 @@ async function renameWithDims(L, W, H, wt, loc, qty){
   // invisible to photo grouping -- the numbers just ride along on the item's own photo.
   const base = stripDims(lastUpload.name).replace(/\.jpg$/i, '');
   const q = (qty && qty > 1) ? `-q${qty}` : '';
-  const newName = `${base}-${L}x${W}x${H}x${wt}${q}${loc ? '-' + loc : ''}.jpg`;
+  const c = condCode ? `-c${condCode}` : '';        // New is the default and writes nothing
+  const newName = `${base}-${L}x${W}x${H}x${wt}${q}${c}${loc ? '-' + loc : ''}.jpg`;
   const res = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${lastUpload.id}`, {
       method: 'PATCH',
@@ -964,6 +985,24 @@ async function renameWithDims(L, W, H, wt, loc, qty){
 }
 
 let onHandQty = 1;
+let condCode = '';        // '' = New (the default, never written to the filename)
+
+function setCond(code){
+  condCode = code || '';
+  document.querySelectorAll('#condKeys button').forEach(b =>
+    b.classList.toggle('on', (b.dataset.c || '') === condCode));
+}
+
+(function wireCond(){
+  const keys = document.getElementById('condKeys');
+  if(!keys) return;
+  keys.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-c]');
+    if(!b) return;
+    e.preventDefault();                     // keep focus / keypad steady
+    setCond(b.dataset.c);
+  });
+})();
 
 function setQty(v){
   onHandQty = Math.max(1, Math.min(99, v));
@@ -993,11 +1032,12 @@ function editLastItem(){
     document.getElementById('dimH').value = m[3];
     document.getElementById('dimWt').value = m[4];
     setQty(m[5] ? parseInt(m[5], 10) : 1);
-    document.getElementById('dimLoc').value = (m[6] || '').replace(/~/g, '/');
+    setCond(m[6] || '');
+    document.getElementById('dimLoc').value = (m[7] || '').replace(/~/g, '/');
     toast('Editing the last item -- change anything and save again');
   }else{
     DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
-    setQty(1);
+    setQty(1); setCond('');
     toast('Last photo has no dimensions yet -- enter them now');
   }
   document.getElementById('dimsLast').textContent = lastDimsMsg;
@@ -1046,6 +1086,7 @@ async function saveDims(btn){
       console.error(e);
       await uploadDims({ length_in:L, width_in:W, height_in:H, weight_lb:wt,
                          location: loc ? loc.replace(/~/g, '/') : '', units_on_hand: onHandQty,
+                         condition_code: condCode,
                          captured_ms: Date.now(), source:'parts-cam' });
       how = 'as separate record';
     }
@@ -1069,7 +1110,7 @@ async function saveDims(btn){
 // exactly the queue of parts still waiting for a shelf -- no extra bookkeeping needed.
 // No /i flag: the qty marker is strictly lowercase 'q' so it can never be confused
 // with an uppercase shelf code such as Q5.
-const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-q(\d+))?(?:-([A-Za-z0-9._~\-]+))?\.(?:jpe?g|JPE?G)$/;
+const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-q(\d+))?(?:-c(no|ru|us|fp))?(?:-([A-Za-z0-9._~\-]+))?\.(?:jpe?g|JPE?G)$/;
 
 function stripDims(name){
   // Re-saving must REPLACE the old suffix, never stack a second one on top.
@@ -1121,7 +1162,7 @@ async function loadPendingLocations(){
   try{ files = await driveList(); }
   catch(e){ list.innerHTML = `<div class="loc-empty">Could not read Drive: ${e.message}</div>`; return; }
 
-  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[6]; });
+  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[7]; });
   const total = pending.length;
   pending = pending.slice(0, LOC_MAX_ROWS);   // newest first; cap so the tab cannot be OOM-killed
   if(!pending.length){
