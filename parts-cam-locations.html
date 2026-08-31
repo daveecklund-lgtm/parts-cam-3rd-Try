@@ -111,6 +111,22 @@
     background:var(--panel); border:1px solid var(--line); color:var(--text); cursor:pointer; }
   .lk-choice.match{ border-color:rgba(95,174,110,0.6); color:var(--success); }
   .lk-choice.active{ background:var(--orange); color:#1c1d1f; border-color:var(--orange); }
+  .lk-qty{ display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .lk-qty .row{ display:flex; align-items:center; gap:10px; }
+  .lk-qty .lbl{ flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim);
+    letter-spacing:0.04em; text-align:left; }
+  .lk-qty .step{ display:flex; align-items:center; }
+  .lk-qty .step button{ width:42px; padding:8px 0; background:var(--panel-alt);
+    border:1px solid var(--line); color:var(--text); font-family:'IBM Plex Mono',monospace;
+    font-size:17px; cursor:pointer; }
+  .lk-qty .step button:first-child{ border-radius:7px 0 0 7px; }
+  .lk-qty .step button:last-child{ border-radius:0 7px 7px 0; }
+  .lk-qty .step .val{ min-width:46px; text-align:center; padding:8px 0; background:var(--panel);
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace; font-size:17px; color:var(--orange); }
+  .lk-qty .btn{ width:100%; margin-top:9px; }
+  .lk-qty .done{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--success);
+    text-align:center; margin-top:7px; }
   .shutter{
     width:72px;height:72px;border-radius:50%;background:var(--orange);border:4px solid #1c1d1f;
     box-shadow:0 0 0 3px var(--orange-dim);display:flex;align-items:center;justify-content:center;
@@ -342,6 +358,18 @@
       <div class="lk-loc" id="lkLoc">—</div>
       <div class="lk-pn" id="lkPn">Snap a printed part # or type it below</div>
     </div>
+    <div class="lk-qty" id="lkQty">
+      <div class="row">
+        <div class="lbl">ADD TO LISTED QTY</div>
+        <div class="step" id="lkQtyStep">
+          <button type="button" data-q="-1">&minus;</button>
+          <div class="val" id="lkQtyVal">1</div>
+          <button type="button" data-q="1">+</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="lkQtyBtn" onclick="queueQtyBump()">Queue for desktop</button>
+      <div class="done" id="lkQtyDone"></div>
+    </div>
     <div class="lk-inputrow">
       <input type="text" id="lkInput" placeholder="Type / paste part #" autocapitalize="characters"
              autocomplete="off" spellcheck="false" oninput="doLookup(this.value)">
@@ -368,7 +396,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v13";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v14";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -625,15 +653,73 @@ async function loadLocationIndex(){
   }
 }
 
+let lkQtyPart = null;      // the part number the queue button would apply to
+let lkQtyN = 1;
+
+function setLkQty(v){
+  lkQtyN = Math.max(1, Math.min(99, v));
+  document.getElementById('lkQtyVal').textContent = lkQtyN;
+}
+
+(function wireLkQty(){
+  const step = document.getElementById('lkQtyStep');
+  if(!step) return;
+  step.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-q]');
+    if(!b) return;
+    e.preventDefault();
+    setLkQty(lkQtyN + parseInt(b.dataset.q, 10));
+  });
+})();
+
+async function queueQtyBump(){
+  if(!lkQtyPart){ toast('Look a part up first', true); return; }
+  if(!accessToken){ toast('Connect Drive first', true); return; }
+  const btn = document.getElementById('lkQtyBtn');
+  btn.disabled = true; btn.textContent = 'Queueing...';
+  try{
+    if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+    const stamp = Date.now();
+    const metadata = { name: `ford-qty-${stamp}.json`, parents: [driveFolderId] };
+    const body = { part_number: lkQtyPart, add_qty: lkQtyN, queued_ms: stamp, source: 'lookup' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
+    form.append('file', new Blob([JSON.stringify(body, null, 2)], {type:'application/json'}));
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form
+    });
+    if(!res.ok){
+      if(res.status === 401){ handleDriveAuthFailure(); }
+      throw new Error('Drive ' + res.status);
+    }
+    document.getElementById('lkQtyDone').textContent =
+      `queued +${lkQtyN} for ${lkQtyPart} -- apply it on the desktop`;
+    toast(`Queued +${lkQtyN} for ${lkQtyPart}`);
+    setLkQty(1);
+  }catch(e){
+    console.error(e);
+    toast('Could not queue: ' + (e.message || 'error'), true);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Queue for desktop';
+  }
+}
+
 function showLookupResult(raw, entry){
   const loc = document.getElementById('lkLoc');
   const pn = document.getElementById('lkPn');
   if(!loc || !pn) return;
+  const qtyBox = document.getElementById('lkQty');
   if(entry){
     loc.textContent = entry.loc;
     loc.className = 'lk-loc found';
     pn.textContent = entry.pn || raw;
+    // A part with a shelf location is one we stock, so offer to add to its listed qty.
+    lkQtyPart = entry.pn || raw;
+    if(qtyBox){ qtyBox.style.display = 'block'; document.getElementById('lkQtyDone').textContent = ''; }
+    setLkQty(1);
   } else {
+    lkQtyPart = null;
+    if(qtyBox) qtyBox.style.display = 'none';
     loc.textContent = raw ? 'not found' : '—';
     loc.className = 'lk-loc' + (raw ? ' missing' : '');
     pn.textContent = raw ? ('No location on file for ' + raw) : 'Snap a printed part # or type it below';
