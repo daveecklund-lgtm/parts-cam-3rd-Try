@@ -39,6 +39,12 @@
   .brand .mark{width:10px;height:10px;background:var(--orange);border-radius:2px;transform:rotate(45deg);}
   .brand h1{font-family:'Oswald',sans-serif;font-size:19px;letter-spacing:0.04em;font-weight:600;margin:0;text-transform:uppercase;}
   .brand small{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);letter-spacing:0.05em;}
+  .ver{
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--text-dim);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:7px;
+    letter-spacing:0.04em;vertical-align:middle;white-space:nowrap;cursor:pointer;
+  }
+  .ver.stale{color:#1c1d1f;background:var(--orange);border-color:var(--orange);}
 
   .drive-pill{
     font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:5px 10px;border-radius:20px;
@@ -266,7 +272,7 @@
     <div class="brand">
       <div class="mark"></div>
       <div>
-        <h1>Parts Cam</h1>
+        <h1>Parts Cam<span class="ver" id="appVer"></span></h1>
         <small>FORD OEM &middot; LABEL CAPTURE</small>
       </div>
     </div>
@@ -362,7 +368,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v12";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v13";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -505,6 +511,33 @@ window.addEventListener('DOMContentLoaded', () => {
   // 'parts' is deliberately not accepted: that camera is superseded by index.html.
   try{ setMode(want === 'lookup' ? 'lookup' : 'locations'); }catch(e){}
 });
+
+// Same tap-to-update behaviour as the camera page: GitHub Pages caches for 10 minutes
+// and iOS holds it longer, so without this the page can serve a stale copy silently.
+function forceUpdate(){
+  location.replace(location.pathname + '?v=' + Date.now() + location.hash);
+}
+
+(function showVersion(){
+  const el = document.getElementById('appVer');
+  if(!el) return;
+  el.textContent = APP_VERSION;
+  el.title = 'Tap to load the latest version';
+  el.onclick = forceUpdate;
+})();
+
+(async function checkForUpdate(){
+  await new Promise(r => setTimeout(r, 1500));
+  try{
+    const res = await fetch(location.pathname + '?_=' + Date.now(), { cache: 'no-store' });
+    if(!res.ok) return;
+    const m = /APP_VERSION\s*=\s*"([^"]+)"/.exec(await res.text());
+    if(!m || m[1] === APP_VERSION) return;
+    const el = document.getElementById('appVer');
+    if(el){ el.textContent = `${APP_VERSION} \u2192 ${m[1]}`; el.classList.add('stale'); }
+    toast(`Update ${m[1]} available -- tap the version to load it`);
+  }catch(e){ /* offline: keep running what we have */ }
+})();
 
 function setMode(m){
   mode = m;
