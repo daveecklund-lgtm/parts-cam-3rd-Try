@@ -412,7 +412,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v17";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v18";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -521,12 +521,52 @@ async function startCamera(){
       audio: false
     });
     document.getElementById('video').srcObject = stream;
+    // if the browser kills this stream later (backgrounding, etc), notice and restart
+    stream.getVideoTracks().forEach(track => {
+      track.addEventListener('ended', () => { setTimeout(startCamera, 300); });
+    });
   }catch(e){
     const el = document.getElementById('camError');
     el.style.display = 'flex';
     el.textContent = 'Camera unavailable — allow camera access for this page and reload.';
   }
 }
+
+function isCameraLive(){
+  const stream = document.getElementById('video').srcObject;
+  if(!stream) return false;
+  const tracks = stream.getVideoTracks();
+  return tracks.length > 0 && tracks[0].readyState === 'live';
+}
+
+// Release the capture device. This page used to hold it for the life of the page, so
+// tapping "Camera" loaded index.html while iOS still had this page (and its stream)
+// alive in the back/forward cache -- index.html then could not open the camera and the
+// only escape was force-quitting the app.
+function stopCamera(){
+  const video = document.getElementById('video');
+  const s = video.srcObject;
+  if(s){ s.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+}
+
+// A live track does NOT mean the viewfinder is running: iOS pauses the <video> element
+// behind native dialogs and overlays and does not resume it on its own.
+function reviveCamera(){
+  const video = document.getElementById('video');
+  if(!isCameraLive()){ startCamera(); return; }
+  if(video.paused || video.readyState < 2){
+    video.play().catch(() => { startCamera(); });
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible'){ reviveCamera(); }
+});
+// pageshow fires on a bfcache restore too, where 'load' does not.
+window.addEventListener('pageshow', () => { reviveCamera(); });
+// Hand the camera over cleanly when leaving for index.html. pagehide, not beforeunload:
+// iOS fires beforeunload unreliably, and pagehide also covers entering the bfcache.
+window.addEventListener('pagehide', () => { stopCamera(); });
 
 function newPart(){
   if(mode === 'locations'){

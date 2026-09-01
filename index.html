@@ -407,7 +407,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.0';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.1';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -574,6 +574,9 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'visible'){ reviveCamera(); }
 });
 window.addEventListener('pageshow', ()=>{ reviveCamera(); });
+// Release the camera when leaving for the Locations/Lookup page, so that page can open
+// it. Same hand-off in the other direction; pageshow above restores the feed on return.
+window.addEventListener('pagehide', ()=>{ stopCamera(); });
 
 function newPart(){
   shotCount = 0;
