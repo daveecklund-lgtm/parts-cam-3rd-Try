@@ -111,6 +111,10 @@
     background:var(--panel); border:1px solid var(--line); color:var(--text); cursor:pointer; }
   .lk-choice.match{ border-color:rgba(95,174,110,0.6); color:var(--success); }
   .lk-choice.active{ background:var(--orange); color:#1c1d1f; border-color:var(--orange); }
+  /* near matches are NOT results -- they must never look like a confirmed hit */
+  .lk-choice.near{ border-style:dashed; border-color:rgba(230,160,60,0.55); color:var(--text-dim); }
+  .lk-near-label{ width:100%; margin-top:12px; font-family:'IBM Plex Mono',monospace;
+                  font-size:10px; color:var(--orange); }
   .lk-qty{ display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
   .lk-qty .row{ display:flex; align-items:center; gap:10px; }
   .lk-qty .lbl{ flex:1; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim);
@@ -396,7 +400,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v15";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v16";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -417,6 +421,7 @@ let locBatchN = 0;        // parts shot in the current (unfinished) location bat
 let locDoneCount = 0;     // location batches uploaded this session
 let locIndex = null;      // lookup: {NORMPN: {loc, pn}} loaded from locations_index.json
 let locIndexInfo = '';    // human summary of the loaded index
+let locBuckets = null;    // {length: [normPN,...]} -- built with locIndex, for near-miss lookup
 let processing = false;
 let audioCtx = null;
 
@@ -646,6 +651,8 @@ async function loadLocationIndex(){
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     locIndex = data.index || {};
+    locBuckets = {};                       // length -> keys, so a near-miss scan stays ~10 ms
+    for(const k in locIndex){ (locBuckets[k.length] = locBuckets[k.length] || []).push(k); }
     locIndexInfo = (data.count || Object.keys(locIndex).length) + ' parts · updated ' + String(data.generated || '').slice(0, 10);
     if(st) st.textContent = 'Location index: ' + locIndexInfo;
   }catch(e){
@@ -726,11 +733,97 @@ function showLookupResult(raw, entry){
   }
 }
 
+// Characters OCR routinely swaps for one another. A candidate differing ONLY by these
+// ranks above one that needs a genuine insert/delete.
+const OCR_CONFUSABLE = {'0':'O','O':'0','1':'I','I':'1','5':'S','S':'5','8':'B','B':'8',
+                        '2':'Z','Z':'2','6':'G','G':'6','7':'T','T':'7','4':'A','A':'4'};
+
+function _boundedLev(a, b, maxd){
+  const la = a.length, lb = b.length;
+  if(Math.abs(la - lb) > maxd) return maxd + 1;
+  let prev = new Array(lb + 1);
+  for(let j = 0; j <= lb; j++) prev[j] = j;
+  for(let i = 1; i <= la; i++){
+    const cur = new Array(lb + 1); cur[0] = i;
+    const lo = Math.max(1, i - maxd), hi = Math.min(lb, i + maxd);
+    let best = maxd + 1;
+    for(let j = 1; j <= lb; j++){
+      if(j < lo || j > hi){ cur[j] = maxd + 1; continue; }
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + cost);
+      if(cur[j] < best) best = cur[j];
+    }
+    if(best > maxd) return maxd + 1;       // whole row already over budget -- stop early
+    prev = cur;
+  }
+  return prev[lb];
+}
+
+function _confusableOnly(a, b){
+  if(a.length !== b.length) return false;
+  for(let i = 0; i < a.length; i++){
+    if(a[i] !== b[i] && OCR_CONFUSABLE[a[i]] !== b[i]) return false;
+  }
+  return true;
+}
+
+// Shelved parts a bad read may have MEANT. Suggestions only -- see the file header:
+// 16.6% of genuinely unshelved parts draw a distance-1 neighbour, so these prompt you
+// to check the tag, they are never an answer, and they are never auto-selected.
+function nearMatches(raw, limit){
+  const key = normPN(raw);
+  if(!key || key.length < 6 || !locIndex || !locBuckets) return [];
+  if(locIndex[key]) return [];                              // exact hit: no guessing needed
+  for(const maxd of [1, 2]){                                // only widen when 1 finds nothing
+    const hits = [];
+    for(const L of [key.length - 1, key.length, key.length + 1]){
+      for(const k of (locBuckets[L] || [])){
+        const d = _boundedLev(key, k, maxd);
+        if(d <= maxd) hits.push({ k: k, d: d, tier: _confusableOnly(key, k) ? 0 : 1 });
+      }
+    }
+    if(hits.length){
+      hits.sort((x, y) => x.tier - y.tier || x.d - y.d || (x.k < y.k ? -1 : 1));
+      return hits.slice(0, limit || 3).map(h => ({ key: h.k, entry: locIndex[h.k],
+                                                   pn: locIndex[h.k].pn || h.k, dist: h.d }));
+    }
+  }
+  return [];
+}
+
 function findLocation(raw){
   // EXACT match only (Dave: "it needs to be exact") -- never guess a nearby part #.
   const key = normPN(raw);
   if(!key || !locIndex || !locIndex[key]) return null;
   return { entry: locIndex[key], pn: locIndex[key].pn || key };
+}
+
+// Near matches for whichever read looks most like a part number, appended BELOW the
+// real choices and visually distinct. Tapping one is the confirmation step.
+function renderNearMatches(box, choices){
+  if(choices.some(ch => findLocation(ch.key))) return;      // an exact hit exists -- don't muddy it
+  let near = [], src = '';
+  const byLen = choices.slice().sort((a, b) => b.key.length - a.key.length);
+  for(const ch of byLen){
+    near = nearMatches(ch.key, 3);
+    if(near.length){ src = ch.display; break; }
+  }
+  if(!near.length) return;
+  const lab = document.createElement('div');
+  lab.className = 'lk-near-label';
+  lab.textContent = 'No exact match for "' + src + '" \u2014 close shelved parts (check the tag):';
+  box.appendChild(lab);
+  near.forEach(m => {
+    const b = document.createElement('button');
+    b.className = 'lk-choice near';
+    b.textContent = m.pn + ' \u2192 ' + m.entry.loc;
+    b.onclick = () => {
+      box.querySelectorAll('.lk-choice').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      selectChoice(m.key, m.pn);
+    };
+    box.appendChild(b);
+  });
 }
 
 function renderChoices(choices){
@@ -754,6 +847,7 @@ function renderChoices(choices){
     };
     box.appendChild(b);
   });
+  renderNearMatches(box, choices);
 }
 
 function selectChoice(key, display){
@@ -858,13 +952,21 @@ function fullForOCR(src){
   return c;
 }
 
-async function cloudOCR(canvas){
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+async function cloudOCR(canvas, engine){
+  // OCR.space's free tier rejects payloads over ~1 MB and base64 adds ~33%. Step the
+  // JPEG quality down until it fits rather than letting the whole read fail.
+  let dataUrl = '';
+  for(const q of [0.9, 0.75, 0.6, 0.45]){
+    dataUrl = canvas.toDataURL('image/jpeg', q);
+    if(dataUrl.length < 1000000) break;
+  }
   const form = new FormData();
   form.append('base64Image', dataUrl);
   form.append('apikey', OCRSPACE_API_KEY);
-  form.append('OCREngine', '2');          // engine 2 = best for alphanumerics
+  form.append('OCREngine', String(engine || 2));   // 2 = best for alphanumerics, 1 = fallback
   form.append('isOverlayRequired', 'false');
+  form.append('scale', 'true');           // upsamples low-DPI text -- the usual win on small tags
+  form.append('detectOrientation', 'true');
   const res = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: form });
   const j = await res.json();
   if(j && j.OCRExitCode === 1 && j.ParsedResults && j.ParsedResults.length){
@@ -886,7 +988,17 @@ async function runLookupOCR(canvas){
 
   let text = '';
   try{
-    text = await cloudOCR(fullForOCR(canvas));                 // cloud OCR reads the whole label
+    // Two reads at once: the whole label, plus an upscaled centre crop where the number
+    // you aimed at is far bigger. Merging beats either alone on small or worn tags.
+    const rs = await Promise.allSettled([
+      cloudOCR(fullForOCR(canvas), 2),
+      cloudOCR(cropForOCR(canvas), 2)
+    ]);
+    text = rs.filter(r => r.status === 'fulfilled').map(r => r.value).join('\n');
+    if(!normPN(text)){                                         // engine 2 found nothing usable
+      if(st) st.textContent = 'Retrying read…';
+      text = await cloudOCR(fullForOCR(canvas), 1);            // engine 1 reads some fonts better
+    }
   }catch(e){
     if(st) st.textContent = 'Cloud OCR unavailable — trying on-device…';
     if(window.Tesseract){
