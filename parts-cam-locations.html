@@ -101,6 +101,13 @@
   .lk-loc.found{ color:var(--success); }
   .lk-loc.missing{ color:var(--error); font-size:26px; }
   .lk-pn{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim); margin-top:10px; word-break:break-word; }
+  .lk-idxbar{ display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .lk-idxinfo{ flex:1; font-family:'IBM Plex Mono',monospace; font-size:10.5px;
+               color:var(--text-dim); line-height:1.35; }
+  .lk-idxinfo.stale{ color:var(--orange); }
+  .lk-idxbtn{ flex:none; font-family:'IBM Plex Mono',monospace; font-size:12px;
+              padding:9px 13px; border-radius:8px; border:1px solid var(--line);
+              background:var(--panel); color:var(--text); }
   .lk-inputrow{ display:flex; gap:8px; margin-top:10px; }
   .lk-inputrow input{ flex:1; padding:11px 12px; background:var(--panel-alt); border:1px solid var(--line); border-radius:9px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:15px; text-transform:uppercase; }
   .lk-inputrow .btn{ width:auto; padding:11px 18px; }
@@ -379,6 +386,11 @@
              autocomplete="off" spellcheck="false" oninput="doLookup(this.value)">
       <button class="btn btn-primary" onclick="doLookup(document.getElementById('lkInput').value)">Find</button>
     </div>
+    <div class="lk-idxbar">
+      <div class="lk-idxinfo" id="lkIdxInfo">Loading index…</div>
+      <button type="button" class="lk-idxbtn" id="lkIdxBtn"
+              onclick="refreshLocationIndex()">↻ Refresh</button>
+    </div>
     <div class="lk-choices" id="lkChoices"></div>
     <div class="lk-status" id="lkStatus">Loading location index…</div>
   </div>
@@ -400,7 +412,7 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v16";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v17";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
@@ -643,9 +655,37 @@ function capturePhoto(){
 // ---------- mode: Lookup (photo/typed part # -> shelf location) ----------
 function normPN(s){ return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
 
-async function loadLocationIndex(){
-  if(locIndex) return;
+let locIndexFetchedMs = 0;   // when THIS page last pulled the file
+const INDEX_MAX_AGE_MS = 5 * 60 * 1000;
+
+// How old the EXPORT is -- the number that actually matters. A miss on a part shelved
+// after this timestamp means the index is behind, not that the part is not on a shelf.
+function _indexAgeLine(generated, count){
+  let line = count + ' parts · exported ' + String(generated || '?').replace('T', ' ').slice(0, 16);
+  let stale = false;
+  const t = Date.parse(generated || '');
+  if(!isNaN(t)){
+    const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    const age = mins < 60 ? mins + ' min ago'
+              : (mins < 1440 ? Math.round(mins / 60) + ' hr ago'
+                             : Math.round(mins / 1440) + ' day' + (Math.round(mins / 1440) === 1 ? '' : 's') + ' ago');
+    line += ' (' + age + ')';
+    stale = mins > 60;
+  }
+  return { line: line, stale: stale };
+}
+
+function refreshLocationIndex(){ return loadLocationIndex(true); }
+
+async function loadLocationIndex(force){
+  // Only re-pull when asked, or when the copy in memory has gone stale. The file is
+  // ~480 KB, so it is not worth re-downloading on every tab switch.
+  if(locIndex && !force && (Date.now() - locIndexFetchedMs) < INDEX_MAX_AGE_MS) return;
   const st = document.getElementById('lkStatus');
+  const info = document.getElementById('lkIdxInfo');
+  const btn = document.getElementById('lkIdxBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '↻ …'; }
+  if(info && force) info.textContent = 'Checking for a newer index…';
   try{
     const res = await fetch('locations_index.json?v=' + Date.now(), { cache: 'no-store' });
     if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -653,10 +693,21 @@ async function loadLocationIndex(){
     locIndex = data.index || {};
     locBuckets = {};                       // length -> keys, so a near-miss scan stays ~10 ms
     for(const k in locIndex){ (locBuckets[k.length] = locBuckets[k.length] || []).push(k); }
-    locIndexInfo = (data.count || Object.keys(locIndex).length) + ' parts · updated ' + String(data.generated || '').slice(0, 10);
+    locIndexFetchedMs = Date.now();
+    const count = data.count || Object.keys(locIndex).length;
+    const a = _indexAgeLine(data.generated, count);
+    locIndexInfo = a.line;
+    if(info){
+      info.textContent = a.line + (a.stale ? ' — export again on the desktop for newer' : '');
+      info.classList.toggle('stale', a.stale);
+    }
     if(st) st.textContent = 'Location index: ' + locIndexInfo;
+    if(force) toast(count + ' parts loaded');
   }catch(e){
+    if(info) info.textContent = 'Could not load the index — check your connection.';
     if(st) st.textContent = 'No location index found. In Ford Lister tap "Export Index", then upload locations_index.json next to this page.';
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '↻ Refresh'; }
   }
 }
 
