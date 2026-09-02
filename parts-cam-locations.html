@@ -1067,6 +1067,46 @@ async function cloudOCR(canvas, engine){
   throw new Error((Array.isArray(em) ? em.join('; ') : em) || 'cloud OCR error');
 }
 
+// Claude-vision read via your backend /ocr (same backend + app secret as Drive). Returns
+// [{display,key}] candidates, or null when the backend isn't configured. Much better than
+// plain OCR on worn/handwritten/low-contrast tags -- same engine as the desktop build.
+async function backendOCR(canvas){
+  const { url, secret } = loadBackendConfig();
+  if(!url || !secret) return null;                 // not connected -> caller falls back
+  // The server expects { image: "data:image/jpeg;base64,..." } (see server.js /ocr). Downscale
+  // the full frame first so the upload stays small; step quality down if needed.
+  const src = (typeof fullForOCR === 'function') ? fullForOCR(canvas) : canvas;
+  let dataUrl = '';
+  for(const q of [0.85, 0.7, 0.55]){
+    dataUrl = src.toDataURL('image/jpeg', q);
+    if(dataUrl.length < 3000000) break;
+  }
+  const res = await fetch(url + '/ocr', {
+    method: 'POST',
+    headers: { 'x-app-secret': secret, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: dataUrl })
+  });
+  if(!res.ok){
+    let msg = 'backend ocr ' + res.status;
+    try{ const e = await res.json(); if(e && (e.error || e.message)) msg = e.error || e.message; }catch(_){}
+    throw new Error(msg);                           // e.g. 'not_configured' -> caller falls back
+  }
+  const j = await res.json();
+  // candidates: [{ text, alternates:[...], confidence }]. Feed the primary read AND every
+  // alternate into the index-match -- the location index decides which reading is the real
+  // part number (never a guess). Flatten to {display,key}, deduped, order preserved.
+  const cands = (j && Array.isArray(j.candidates)) ? j.candidates : [];
+  const seen = new Set(), out = [];
+  for(const c of cands){
+    const readings = [c && c.text, ...((c && c.alternates) || [])].filter(Boolean);
+    for(const r of readings){
+      const key = normPN(r);
+      if(key.length >= 4 && !seen.has(key)){ seen.add(key); out.push({ display: String(r).trim(), key }); }
+    }
+  }
+  return out;
+}
+
 async function runLookupOCR(canvas){
   const st = document.getElementById('lkStatus');
   const inp = document.getElementById('lkInput');
@@ -1077,7 +1117,16 @@ async function runLookupOCR(canvas){
   if(st) st.textContent = 'Reading part number…';
   await loadLocationIndex();
 
+  // Prefer Claude via your backend (reads worn/handwritten/low-contrast tags far better than
+  // plain OCR). Fall back to OCR.space / on-device Tesseract if the backend isn't set or errors.
+  let choices = null;
+  try{
+    const bc = await backendOCR(canvas);
+    if(bc && bc.length) choices = bc;
+  }catch(e){ if(st) st.textContent = 'Reading (fallback OCR)…'; }
+
   let text = '';
+  if(!choices){
   try{
     // Two reads at once: the whole label, plus an upscaled centre crop where the number
     // you aimed at is far bigger. Merging beats either alone on small or worn tags.
@@ -1105,7 +1154,7 @@ async function runLookupOCR(canvas){
 
   // Build per-LINE candidates so a multi-line tag lets you tap the correct line.
   const lines = text.split(/[\r\n]+/);
-  const seen = new Set(), choices = [];
+  const seen = new Set(); choices = [];
   for(const line of lines){
     // whole-line join: rebuilds a part # split by spaces/dashes ("E8GZ - 6564 - B" -> E8GZ6564B)
     const lineKey = normPN(line);
@@ -1119,6 +1168,8 @@ async function runLookupOCR(canvas){
       if(a.length >= 5 && a !== lineKey && /[0-9]/.test(a) && !seen.has(a)){ seen.add(a); choices.push({ display: t, key: a }); }
     }
   }
+  }   // end fallback OCR path
+  choices = choices || [];
   renderChoices(choices);
   const hit = choices.find(ch => findLocation(ch.key));
   if(hit){                                    // one candidate is already on file -> show it, keep the rest tappable
