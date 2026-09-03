@@ -1070,7 +1070,13 @@ async function cloudOCR(canvas, engine){
 // Claude-vision read via your backend /ocr (same backend + app secret as Drive). Returns
 // [{display,key}] candidates, or null when the backend isn't configured. Much better than
 // plain OCR on worn/handwritten/low-contrast tags -- same engine as the desktop build.
+// IMPORTANT: this must NOT slow the Lookup. It has a short timeout, and if the backend has no
+// Claude key yet (not_configured) it turns itself OFF for the session so every later lookup
+// goes straight to the fast OCR.space/Tesseract path (fixed 2026-09-02: the added call was
+// hanging on Render cold-start / no-key and made dup lookups look broken).
+let _backendOcrOff = false;
 async function backendOCR(canvas){
+  if(_backendOcrOff) return null;
   const { url, secret } = loadBackendConfig();
   if(!url || !secret) return null;                 // not connected -> caller falls back
   // The server expects { image: "data:image/jpeg;base64,..." } (see server.js /ocr). Downscale
@@ -1081,15 +1087,26 @@ async function backendOCR(canvas){
     dataUrl = src.toDataURL('image/jpeg', q);
     if(dataUrl.length < 3000000) break;
   }
-  const res = await fetch(url + '/ocr', {
-    method: 'POST',
-    headers: { 'x-app-secret': secret, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: dataUrl })
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 7000);   // don't let a cold/slow backend hang the read
+  let res;
+  try{
+    res = await fetch(url + '/ocr', {
+      method: 'POST',
+      headers: { 'x-app-secret': secret, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
+      signal: ctrl.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if(!res.ok){
     let msg = 'backend ocr ' + res.status;
     try{ const e = await res.json(); if(e && (e.error || e.message)) msg = e.error || e.message; }catch(_){}
-    throw new Error(msg);                           // e.g. 'not_configured' -> caller falls back
+    if(res.status === 404 || /not_configured/i.test(msg)){
+      _backendOcrOff = true;                       // no Claude key/endpoint -> stop trying this session
+    }
+    throw new Error(msg);                           // caller falls back to OCR.space/Tesseract
   }
   const j = await res.json();
   // candidates: [{ text, alternates:[...], confidence }]. Feed the primary read AND every
