@@ -353,6 +353,7 @@
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
     <button class="btn btn-secondary" onclick="skipShelf(this)" style="width:100%;margin-top:6px;">Save without shelf</button>
     <button class="btn btn-secondary" onclick="toggleDims()" style="width:100%; margin-top:6px;">Cancel</button>
+    <button class="btn btn-secondary" onclick="deleteRetakePhoto6(this)" style="width:100%; margin-top:6px; color:#b00020; border-color:#b00020;">Delete &amp; retake photo 6</button>
   </div>
 
   <div class="mode-seg">
@@ -903,6 +904,43 @@ function openDimsForEntry(){
   const first = document.getElementById('dimL');
   first.focus();
   try{ first.setSelectionRange(0, 0); }catch(e){}
+}
+
+// Delete the just-taken 6th photo (the shelf-tag shot) and roll the counter back so
+// the next capture is numbered 6 again. Trashes (not hard-deletes) in Drive so it can
+// be recovered. lastUpload points at the most recent successful upload; because uploads
+// are sequential, once the queue has drained that IS photo 6.
+async function deleteRetakePhoto6(btn){
+  // If a photo is still uploading, lastUpload may still be photo 5 — don't risk deleting it.
+  if(queue.some(i => i.status === 'queued' || i.status === 'processing')){
+    toast('Let photo 6 finish uploading first, then tap again', true); return;
+  }
+  if(!lastUpload || !lastUpload.id){ toast('No photo to delete yet', true); return; }
+  if(!accessToken){ toast('Not connected to Drive', true); return; }
+  if(!confirm('Delete photo 6 and take it again?')) return;
+  const orig = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Deleting…'; }
+  try{
+    const res = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files/${lastUpload.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true })
+      }, 20000);
+    if(!res.ok){
+      const text = await res.text().catch(()=>'');
+      if(res.status === 401){ handleDriveAuthFailure(); }
+      throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
+    }
+    setLastUpload(null);
+    if(shotCount > 0) shotCount = shotCount - 1;   // 6 -> 5, so the next shot is 6 again
+    document.getElementById('dimsPanel').style.display = 'none';
+    toast('Photo 6 deleted — take it again');
+  }catch(e){
+    toast('Could not delete: ' + (e.message || e), true);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 function wireDimsAutoAdvance(){
