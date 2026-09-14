@@ -320,6 +320,9 @@
         <button type="button" data-k="D">D</button>
         <button type="button" data-k="E">E</button>
         <button type="button" data-k="F">F</button>
+        <button type="button" data-k=".">.</button>
+        <button type="button" data-k="SP">␣</button>
+        <button type="button" data-k="KB">⌨</button>
         <button type="button" data-k="BS">&#9003;</button>
       </div>
     </div>
@@ -929,9 +932,16 @@ wireDimsAutoAdvance();
 
   function applyKey(k){
     const el = document.getElementById('dimLoc');
+    if(k === 'KB'){                          // ⌨ -> pull the phone's FULL keyboard (letters/space/period)
+      el.setAttribute('inputmode', 'text');
+      el.removeAttribute('pattern');
+      el.focus();
+      return;
+    }
+    const ch = (k === 'SP') ? ' ' : k;       // ␣ chip inserts a real space; '.' inserts a period
     el.value = k === 'BS' ? el.value.slice(0, -1)
-                          : (el.value + k).toUpperCase();
-    el.focus();                              // keeps / re-raises the number pad
+                          : (el.value + ch).toUpperCase();
+    el.focus();                              // keeps / re-raises the keypad
     el.dispatchEvent(new Event('input'));    // restarts the idle timer
   }
 
@@ -1166,7 +1176,7 @@ async function saveDims(btn){
 // exactly the queue of parts still waiting for a shelf -- no extra bookkeeping needed.
 // No /i flag: the qty marker is strictly lowercase 'q' so it can never be confused
 // with an uppercase shelf code such as Q5.
-const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-q(\d+))?(?:-c(no|ru|us|fp))?(?:-([A-Za-z0-9._~\-]+))?\.(?:jpe?g|JPE?G)$/;
+const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(\d+)(?:-q(\d+))?(?:-c(no|ru|us|fp))?(?:-([A-Za-z0-9 ._~\-]+))?\.(?:jpe?g|JPE?G)$/;
 
 function stripDims(name){
   // Re-saving must REPLACE the old suffix, never stack a second one on top.
@@ -1175,9 +1185,10 @@ function stripDims(name){
 }
 
 function encodeLoc(raw){
-  // '/' is illegal in a filename; the desktop turns '~' back into '/'.
-  return String(raw || '').trim().toUpperCase().replace(/\s+/g, '')
-    .replace(/\//g, '~').replace(/[^A-Z0-9._~\-]/g, '');
+  // '/' is illegal in a filename; the desktop turns '~' back into '/'. Spaces and periods are
+  // KEPT (Dave 2026-09-14) -- e.g. "GC 90", "Shelf 3.5" -- collapse runs, drop only odd chars.
+  return String(raw || '').trim().toUpperCase().replace(/\s+/g, ' ')
+    .replace(/\//g, '~').replace(/[^A-Z0-9 ._~\-]/g, '');
 }
 
 const LOC_MAX_ROWS = 12;
