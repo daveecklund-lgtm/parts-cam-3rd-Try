@@ -733,7 +733,10 @@ async function fetchAccessToken(){
       if(data.error === 'not_connected'){
         toast('Drive not connected yet — visit ' + backendUrl + '/auth/start once in a browser', true);
       } else {
-        toast('Could not reach token server: ' + (data.error || res.status), true);
+        // Surface Google's real reason (invalid_grant/invalid_client/…) when the refresh fails,
+        // so a bad/expired token in Render can be told apart from a client-config problem.
+        const g = data.detail && (data.detail.error || data.detail.error_description);
+        toast('Could not reach token server: ' + (data.error || res.status) + (g ? ' (' + g + ')' : ''), true);
       }
       return;
     }
