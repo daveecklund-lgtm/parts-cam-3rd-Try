@@ -417,7 +417,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.2';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.3';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -967,6 +967,7 @@ async function deleteRetakePhoto6(btn){
     setLastUpload(null);
     if(shotCount > 0) shotCount = shotCount - 1;   // 6 -> 5, so the next shot is 6 again
     document.getElementById('dimsPanel').style.display = 'none';
+    reviveCamera();                                // restart the preview (panel had paused it)
     toast('Photo 6 deleted — take it again');
   }catch(e){
     toast('Could not delete: ' + (e.message || e), true);
