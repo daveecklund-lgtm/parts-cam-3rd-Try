@@ -308,6 +308,12 @@
                placeholder="e.g. 55A" autocapitalize="characters" autocorrect="off"
                spellcheck="false" autocomplete="off"></div>
     </div>
+    <div class="dims-shelf">
+      <div class="f"><label>PART # (optional — overrides the photo when the tag can't be shot)</label>
+        <input type="text" id="dimPN"
+               placeholder="type the part number" autocapitalize="characters" autocorrect="off"
+               spellcheck="false" autocomplete="off"></div>
+    </div>
     <div id="locKeys">
       <div class="loc-keys">
         <button type="button" data-k="GC">GC</button>
@@ -411,7 +417,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.1';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.2';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -892,6 +898,28 @@ async function uploadDims(dims){
   }
 }
 
+// A part number typed at photo 6 when the tag can't be photographed. Uploaded as
+// ford-pn-<epoch>.json; the desktop matches it to the item shot just before and uses
+// it INSTEAD of reading the number off the photo.
+async function uploadManualPN(pn){
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+  const metadata = { name: `ford-pn-${Date.now()}.json`, parents: [driveFolderId] };
+  const body = { part_number: pn, captured_ms: Date.now(), source: 'parts-cam' };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
+  form.append('file', new Blob([JSON.stringify(body, null, 2)], {type:'application/json'}));
+  const res = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form
+  }, 30000);
+  if(!res.ok){
+    const text = await res.text().catch(()=>'');
+    if(res.status === 401){ handleDriveAuthFailure(); }
+    throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
+  }
+}
+
 const DIMS_ADVANCE_MS = 600;    // pause this long and focus jumps to the next box
 const NUM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt'];   // shelf is deliberately excluded
 const DIM_FIELDS = ['dimL', 'dimW', 'dimH', 'dimWt', 'dimLoc'];
@@ -902,6 +930,7 @@ function openDimsForEntry(){
   el.style.display = 'block';
   document.getElementById('dimsLast').textContent = lastDimsMsg;
   DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+  const pnEl = document.getElementById('dimPN'); if(pnEl) pnEl.value = '';
   setQty(1);                                   // default: nothing to touch for a single unit
   setCond('');                                 // default: New
   const first = document.getElementById('dimL');
@@ -1197,10 +1226,19 @@ async function saveDims(btn){
                          captured_ms: Date.now(), source:'parts-cam' });
       how = 'as separate record';
     }
+    // Manual part number (wrapped tag) -- save it as its own sidecar so the desktop
+    // uses it instead of reading the photo. Best-effort: never lose the dims over it.
+    const pnTyped = (document.getElementById('dimPN').value || '').trim().toUpperCase();
+    if(pnTyped){
+      try{ await uploadManualPN(pnTyped); how += ` + PN ${pnTyped}`; }
+      catch(e){ console.error(e); toast('Dimensions saved, part number FAILED', true); }
+    }
     lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb` +
                   (onHandQty > 1 ? `  x${onHandQty}` : '') +
-                  (loc ? `  @ ${loc.replace(/~/g, '/')}` : '');
+                  (loc ? `  @ ${loc.replace(/~/g, '/')}` : '') +
+                  (pnTyped ? `  PN ${pnTyped}` : '');
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
+    document.getElementById('dimPN').value = '';
     document.getElementById('dimsPanel').style.display = 'none';
     reviveCamera();
     toast(`Saved ${L} x ${W} x ${H}, ${wt} lb (${how})`);
