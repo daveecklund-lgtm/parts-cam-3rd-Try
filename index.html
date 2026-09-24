@@ -418,7 +418,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.4';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.5';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -580,11 +580,32 @@ function reviveCamera(){
   }
 }
 
+// Recover a stalled upload queue when the app comes back to the foreground -- iOS freezes
+// in-flight fetches while the tab is backgrounded, which used to force a close/reopen to
+// get photos moving again (Dave 2026-09-24). Rescue any wedged 'processing' item and retry
+// errors; the upload is idempotent (checks Drive first) so retrying never duplicates.
+function kickUploads(){
+  if(!accessToken){
+    if(backendUrl && appSecret) fetchAccessToken();   // token lapsed while backgrounded (flushes 'ready')
+    return;
+  }
+  const now = Date.now();
+  let changed = false;
+  for(const it of queue){
+    const stuck = it.status === 'processing' && it.procStart && (now - it.procStart) > 15000;
+    if(stuck || it.status === 'error' || it.status === 'ready'){
+      it.status = 'queued'; changed = true;
+    }
+  }
+  if(changed) processing = false;          // the old pump is wedged -> let a fresh one run
+  if(queue.some(i => i.status === 'queued')){ renderStrip(); updateCounts(); processQueue(); }
+}
+
 // When returning to the tab/app (foreground, unlock, etc), make sure the feed is still actually live
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible'){ reviveCamera(); }
+  if(document.visibilityState === 'visible'){ reviveCamera(); kickUploads(); }
 });
-window.addEventListener('pageshow', ()=>{ reviveCamera(); });
+window.addEventListener('pageshow', ()=>{ reviveCamera(); kickUploads(); });
 // Release the camera when leaving for the Locations/Lookup page, so that page can open
 // it. Same hand-off in the other direction; pageshow above restores the feed on return.
 window.addEventListener('pagehide', ()=>{ stopCamera(); });
@@ -672,6 +693,8 @@ async function processQueue(){
       const item = queue.find(i => i.status === 'queued');
       if(!item) break;
       item.status = 'processing';
+      item.attempts = (item.attempts || 0) + 1;   // >1 -> retry -> upload checks for a dup first
+      item.procStart = Date.now();                // so a frozen upload can be rescued on foreground
       renderStrip(); updateCounts();
       try{
         item.jpgBlob = item.rawBlob; // Photoroom step skipped — raw capture goes straight to Drive/download
@@ -833,6 +856,22 @@ function handleDriveAuthFailure(){
   fetchAccessToken(); // try to recover via the backend for the next attempt
 }
 
+// Is a photo with this exact name already in the Drive folder? Used to make retries
+// idempotent -- iOS freezing the tab mid-upload often lands the file on Drive anyway, and
+// a blind retry then makes a DUPLICATE (Dave 2026-09-24). Filenames are deterministic per
+// photo, so a name hit means "already uploaded".
+async function driveFileExists(name){
+  if(!driveFolderId || !accessToken) return null;
+  const q = `name='${name.replace(/'/g, "\\'")}' and '${driveFolderId}' in parents and trashed=false`;
+  const url = 'https://www.googleapis.com/drive/v3/files?fields=files(id,name)&pageSize=1&q=' + encodeURIComponent(q);
+  try{
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 15000);
+    if(!res.ok) return null;
+    const d = await res.json();
+    return (d.files && d.files[0]) || null;
+  }catch(e){ return null; }
+}
+
 async function uploadToDrive(item){
   if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
   const metadata = {
@@ -842,6 +881,12 @@ async function uploadToDrive(item){
     name: `ford-part-${String(item.id).padStart(3, '0')}-${item.capturedMs || Date.now()}.jpg`,
     parents: [driveFolderId]
   };
+  // On a RETRY, the previous attempt may have actually landed on Drive (frozen response) --
+  // skip re-uploading if the file is already there, so we never duplicate it.
+  if((item.attempts || 0) > 1){
+    const existing = await driveFileExists(metadata.name);
+    if(existing){ setLastUpload({ id: existing.id, name: metadata.name }); return; }
+  }
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
   form.append('file', item.jpgBlob);
