@@ -112,6 +112,7 @@
 
   .strip{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;flex-shrink:0;min-height:78px;box-sizing:border-box;}
   .thumb{position:relative;width:58px;height:58px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--panel-alt);border:1px solid var(--line);}
+  .thumb.uploaded{border:2px solid #5fae6e;}   /* fully uploaded -> green frame */
   .thumb img{width:100%;height:100%;object-fit:cover;}
   .thumb .badge{
     position:absolute;bottom:0;left:0;right:0;font-family:'IBM Plex Mono',monospace;font-size:8px;text-align:center;
@@ -417,7 +418,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.3';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.4';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -590,6 +591,7 @@ window.addEventListener('pagehide', ()=>{ stopCamera(); });
 
 function newPart(){
   shotCount = 0;
+  clearStrip();                 // starting a fresh part -> drop the last item's mini images
   const el = document.getElementById('shotFlash');
   el.textContent = 'NEW PART';
   el.classList.add('small');
@@ -675,8 +677,7 @@ async function processQueue(){
         item.jpgBlob = item.rawBlob; // Photoroom step skipped — raw capture goes straight to Drive/download
         if(accessToken){
           await uploadToDrive(item);
-          item.status = 'uploaded';
-          setTimeout(()=>removeItem(item.id), 900);
+          item.status = 'uploaded';   // stays on the strip (green) until dims are saved
         } else {
           item.status = 'ready';
         }
@@ -761,8 +762,7 @@ async function fetchAccessToken(){
       if(item.status === 'ready'){
         try{
           await uploadToDrive(item);
-          item.status = 'uploaded';
-          setTimeout(()=>removeItem(item.id), 900);
+          item.status = 'uploaded';   // stays on the strip (green) until dims are saved
         }catch(e){ item.status='error'; item.errorMsg = e.message; }
       }
     }
@@ -1241,8 +1241,9 @@ async function saveDims(btn){
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
     document.getElementById('dimPN').value = '';
     document.getElementById('dimsPanel').style.display = 'none';
+    clearStrip();                 // dims saved -> the item's mini images disappear
     reviveCamera();
-    toast(`Saved ${L} x ${W} x ${H}, ${wt} lb (${how})`);
+    toast(`Saved ${L} x ${W} x ${H}, ${wt} lb, qty ${onHandQty} (${how})`);
   }catch(e){
     console.error(e);
     toast('Dimensions failed: ' + (e.message || 'error'), true);
@@ -1395,6 +1396,20 @@ function toggleLocations(){
 }
 
 // ---------- UI ----------
+// Wipe the whole thumbnail strip (after an item's dims are saved, or on New Part). The
+// mini images stay through all six shots + upload, then clear here (Dave 2026-09-24).
+function clearStrip(){
+  // Only clear the fully-uploaded (green) ones; keep anything still queued/erroring so a
+  // photo that didn't land stays visible instead of being silently lost.
+  for(let i = queue.length - 1; i >= 0; i--){
+    if(queue[i].status === 'uploaded'){
+      try{ URL.revokeObjectURL(queue[i].thumbUrl); }catch(e){}
+      queue.splice(i, 1);
+    }
+  }
+  renderStrip(); updateCounts();
+}
+
 function removeItem(id){
   const idx = queue.findIndex(q=>q.id===id);
   if(idx>-1){
@@ -1409,7 +1424,7 @@ function renderStrip(){
   strip.innerHTML = '';
   queue.forEach(item=>{
     const div = document.createElement('div');
-    div.className = 'thumb';
+    div.className = 'thumb ' + item.status;   // .uploaded -> green frame
     const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error');
     div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${labelFor(item.status)}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
     if(item.status === 'error'){
