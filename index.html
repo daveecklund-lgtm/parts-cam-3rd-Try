@@ -418,7 +418,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.5';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.6';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -1231,16 +1231,18 @@ function skipShelf(btn){
 }
 
 async function saveDims(btn){
-  const num = id => {
+  const num = (id, allowZero) => {
     const raw = document.getElementById(id).value.trim();
     if(!raw) return null;
     const v = Number(raw);
-    return (Number.isInteger(v) && v > 0) ? v : NaN;
+    return (Number.isInteger(v) && (allowZero ? v >= 0 : v > 0)) ? v : NaN;
   };
-  const L = num('dimL'), W = num('dimW'), H = num('dimH'), wt = num('dimWt');
+  const L = num('dimL'), W = num('dimW'), H = num('dimH');
+  // Weight may be 0 -> the desktop turns that into the default 15 oz (Dave 2026-09-24).
+  const wt = num('dimWt', true);
   const loc = encodeLoc(document.getElementById('dimLoc').value);
   if([L,W,H,wt].some(v => v === null)){ toast('Fill in all four boxes', true); return; }
-  if([L,W,H,wt].some(v => isNaN(v))){ toast('Whole numbers only, greater than zero', true); return; }
+  if([L,W,H,wt].some(v => isNaN(v))){ toast('Whole numbers only (weight may be 0)', true); return; }
   if(!accessToken){ toast('Connect Drive first', true); return; }
   if(!lastUpload && !queue.length){ toast('Take the item photos first', true); return; }
 
@@ -1279,7 +1281,8 @@ async function saveDims(btn){
       try{ await uploadManualPN(pnTyped); how += ` + PN ${pnTyped}`; }
       catch(e){ console.error(e); toast('Dimensions saved, part number FAILED', true); }
     }
-    lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wt} lb` +
+    const wtTxt = wt > 0 ? `${wt} lb` : '15 oz (default)';
+    lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wtTxt}` +
                   (onHandQty > 1 ? `  x${onHandQty}` : '') +
                   (loc ? `  @ ${loc.replace(/~/g, '/')}` : '') +
                   (pnTyped ? `  PN ${pnTyped}` : '');
@@ -1288,7 +1291,7 @@ async function saveDims(btn){
     document.getElementById('dimsPanel').style.display = 'none';
     clearStrip();                 // dims saved -> the item's mini images disappear
     reviveCamera();
-    toast(`Saved ${L} x ${W} x ${H}, ${wt} lb, qty ${onHandQty} (${how})`);
+    toast(`Saved ${L} x ${W} x ${H}, ${wtTxt}, qty ${onHandQty} (${how})`);
   }catch(e){
     console.error(e);
     toast('Dimensions failed: ' + (e.message || 'error'), true);
