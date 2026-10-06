@@ -252,6 +252,20 @@
   .loc-step.done .n{ background:var(--success); color:#0e2413; }
   .loc-count{ margin:0 16px 10px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-align:center; }
   .loc-count b{ color:var(--success); }
+  /* ---- Manifest mode (one photo per part + qty, for an inventory manifest) ---- */
+  .mf-panel{ margin:0 16px 10px; padding:10px 12px; background:var(--panel); border:1px solid var(--line); border-radius:10px; flex-shrink:0; }
+  .mf-panel .row{ display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .mf-panel .row:first-child{ margin-top:0; }
+  .mf-panel .lbl{ width:66px; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); letter-spacing:.06em; }
+  .mf-panel input{ flex:1; min-width:0; padding:9px 10px; background:var(--panel-alt); border:1px solid var(--line); border-radius:8px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:14px; }
+  .mf-panel #mfPN{ text-transform:uppercase; }
+  .mf-panel .step{ display:flex; align-items:center; }
+  .mf-panel .step button{ width:46px; padding:9px 0; background:var(--panel-alt); border:1px solid var(--line); color:var(--text); font-size:18px; }
+  .mf-panel .step button:first-child{ border-radius:8px 0 0 8px; }
+  .mf-panel .step button:last-child{ border-radius:0 8px 8px 0; }
+  .mf-panel .step .val{ min-width:54px; text-align:center; padding:9px 0; background:var(--panel); border-top:1px solid var(--line); border-bottom:1px solid var(--line); font-family:'IBM Plex Mono',monospace; font-size:18px; font-weight:600; color:var(--orange); }
+  .mf-panel .tot{ margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); text-align:right; }
+  .mf-panel .tot b{ color:var(--success); }
 
   /* ---- Landscape mode: compact all chrome so the viewfinder stays fully visible ---- */
   @media (orientation: landscape) and (max-height: 550px){
@@ -313,10 +327,33 @@
     <a class="mode-btn" href="index.html" style="text-decoration:none;line-height:1.6;">Camera</a>
     <button class="mode-btn active" data-mode="locations" onclick="setMode('locations')">Locations</button>
     <button class="mode-btn" data-mode="lookup" onclick="setMode('lookup')">Lookup</button>
+    <button class="mode-btn" data-mode="manifest" onclick="setMode('manifest')">Manifest</button>
   </div>
 
   <div class="loc-steps" id="locSteps" style="display:none;">
     <div class="loc-step active" id="locBatchInfo"><div class="n" id="locBatchN">0</div><div class="t">parts in this batch — shoot each part, then tap <b>📍 Location</b> to finish. All parts go on that one shelf.</div></div>
+  </div>
+  <div class="mf-panel" id="mfPanel" style="display:none;">
+    <div class="row">
+      <div class="lbl">MANIFEST</div>
+      <input type="text" id="mfName" maxlength="40" autocomplete="off" spellcheck="false"
+             placeholder="Name this manifest" onchange="saveMfName()">
+    </div>
+    <div class="row">
+      <div class="lbl">QTY</div>
+      <div class="step" id="mfQtyStep">
+        <button type="button" data-q="-1">&minus;</button>
+        <div class="val" id="mfQtyVal">1</div>
+        <button type="button" data-q="1">+</button>
+        <button type="button" data-q="10" style="width:50px;font-size:13px;">+10</button>
+      </div>
+      <div class="tot">items <b id="mfItems">0</b><br>units <b id="mfUnits">0</b></div>
+    </div>
+    <div class="row">
+      <div class="lbl">PART #</div>
+      <input type="text" id="mfPN" maxlength="40" autocomplete="off" spellcheck="false"
+             autocapitalize="characters" placeholder="optional (if tag won't read)">
+    </div>
   </div>
   <div class="loc-count" id="locCount" style="display:none;">Batches uploaded this session: <b id="locDone">0</b></div>
 
@@ -412,10 +449,11 @@ const PHOTOROOM_API_KEY = "sk_pr_claudemcp20260715_cc09a178cbf6cada50497481326a4
 // Cloud OCR for the Lookup tab. "helloworld" is OCR.space's shared demo key (rate-limited)
 // -- get your OWN free key (25k/mo) at https://ocr.space/ocrapi and replace it here.
 const OCRSPACE_API_KEY = "K88252189388957";
-const APP_VERSION = "v18";   // shown in the header subtitle so you can confirm the deployed version
+const APP_VERSION = "v19";   // shown in the header subtitle so you can confirm the deployed version
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
+const MANIFEST_FOLDER_NAME = "Manifest Photos";    // subfolder of Ford Parts Photos; read by the desktop Manifest tab
 const LOCATION_FOLDER_NAME = "Location Updates";   // subfolder of Ford Parts Photos; read by the Ford Lister desktop tool
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DEFAULT_CLIENT_ID = "1098719104563-4seh9f60bdg7qn4crnnp6td1t62q3v16.apps.googleusercontent.com";
@@ -428,6 +466,8 @@ let tokenClient = null;
 let accessToken = null;
 let driveFolderId = null;
 let locationFolderId = null;
+let manifestFolderId = null;
+let mfQty = 1;            // manifest: qty for the NEXT photo (resets to 1 after each shot)
 let mode = 'parts';       // 'parts' | 'locations'
 let locBatchN = 0;        // parts shot in the current (unfinished) location batch
 let locDoneCount = 0;     // location batches uploaded this session
@@ -569,6 +609,12 @@ window.addEventListener('pageshow', () => { reviveCamera(); });
 window.addEventListener('pagehide', () => { stopCamera(); });
 
 function newPart(){
+  if(mode === 'manifest'){
+    setMfQty(1);
+    document.getElementById('mfPN').value = '';
+    toast('Qty reset to 1');
+    return;
+  }
   if(mode === 'locations'){
     queue = queue.filter(it => it.status !== 'batch');
     locBatchN = 0;
@@ -594,7 +640,7 @@ function newPart(){
 window.addEventListener('DOMContentLoaded', () => {
   const want = (location.hash || '').replace('#', '');
   // 'parts' is deliberately not accepted: that camera is superseded by index.html.
-  try{ setMode(want === 'lookup' ? 'lookup' : 'locations'); }catch(e){}
+  try{ setMode(want === 'lookup' || want === 'manifest' ? want : 'locations'); }catch(e){}
 });
 
 // Same tap-to-update behaviour as the camera page: GitHub Pages caches for 10 minutes
@@ -635,6 +681,9 @@ function setMode(m){
   const isLoc = (m === 'locations');
   const isLook = (m === 'lookup');
   const isParts = (m === 'parts');
+  const isMf = (m === 'manifest');
+  document.getElementById('mfPanel').style.display = isMf ? 'block' : 'none';
+  if(isMf) loadMfName();
   document.getElementById('specStrip').style.display = isParts ? 'flex' : 'none';
   document.getElementById('locSteps').style.display  = isLoc ? 'flex' : 'none';
   document.getElementById('locCount').style.display  = isLoc ? 'block' : 'none';
@@ -645,7 +694,7 @@ function setMode(m){
   document.getElementById('strip').style.display = isLook ? 'none' : 'flex';
   document.querySelector('footer').style.display = isLook ? 'none' : 'flex';
   document.querySelector('.brand small').textContent =
-    (isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE')) + ' · ' + APP_VERSION;
+    (isMf ? 'INVENTORY MANIFEST' : isLook ? 'LOCATION LOOKUP' : (isLoc ? 'SHELF LOCATION UPDATE' : 'FORD OEM · LABEL CAPTURE')) + ' · ' + APP_VERSION;
   updateLocUI();
   renderStrip(); updateCounts();
   if(isLook){ loadLocationIndex(); showLookupResult('', null); }
@@ -664,6 +713,7 @@ function updateLocUI(){
     if(mode === 'locations'){
       ti.innerHTML = (locBatchN > 0) ? ('▲ ' + locBatchN + ' PART(S) — TAP 📍') : '▲ SHOOT PARTS';
     } else if(mode === 'lookup'){ ti.innerHTML = '▲ PART #'; }
+    else if(mode === 'manifest'){ ti.innerHTML = '▲ ONE PHOTO PER PART · QTY ' + mfQty; }
     else { ti.innerHTML = '▲ TOP'; }
   }
 }
@@ -688,6 +738,7 @@ function capturePhoto(){
   if(mode === 'lookup'){ runLookupOCR(canvas); return; }
   canvas.toBlob((blob)=>{
     if(mode === 'locations'){ addBatchPart(blob); }
+    else if(mode === 'manifest'){ addManifestShot(blob); }
     else { handlePartShot(blob); }
   }, 'image/jpeg', 0.9);
 }
@@ -1261,6 +1312,90 @@ function finalizeBatch(shelfBlob){
   toast(accessToken ? ('Batch uploading: ' + seq + ' part(s) + location') : 'Batch saved — sign in to upload');
 }
 
+// ---------- mode: Manifest (one photo per part + its qty) ----------
+// File name carries everything the desktop needs:  mf-<manifest>-<epoch>-q<qty>[-p<PN>].jpg
+// (<manifest> and <PN> reduced to [A-Za-z0-9_]; the desktop turns '_' in the PN back into '-').
+function mfSlug(name){
+  return (name || '').trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+}
+function mfDefaultName(){
+  const d = new Date();
+  return 'Manifest ' + d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+function loadMfName(){
+  const el = document.getElementById('mfName');
+  let v = '';
+  try{ v = localStorage.getItem('mfName') || ''; }catch(e){}
+  if(!el.value) el.value = v || mfDefaultName();
+  showMfTotals();
+}
+function saveMfName(){
+  const el = document.getElementById('mfName');
+  try{ localStorage.setItem('mfName', el.value.trim()); }catch(e){}
+  showMfTotals();
+}
+function _mfTotKey(slug){ return 'mfTot-' + slug; }
+function getMfTotals(slug){
+  try{ return JSON.parse(localStorage.getItem(_mfTotKey(slug)) || '{"items":0,"units":0}'); }
+  catch(e){ return {items:0, units:0}; }
+}
+function showMfTotals(){
+  const t = getMfTotals(mfSlug(document.getElementById('mfName').value));
+  document.getElementById('mfItems').textContent = t.items;
+  document.getElementById('mfUnits').textContent = t.units;
+}
+function addMfTotals(slug, qty){
+  const t = getMfTotals(slug);
+  t.items += 1; t.units += qty;
+  try{ localStorage.setItem(_mfTotKey(slug), JSON.stringify(t)); }catch(e){}
+  if(mfSlug(document.getElementById('mfName').value) === slug) showMfTotals();
+}
+function setMfQty(v){
+  mfQty = Math.max(1, Math.min(999, v));
+  document.getElementById('mfQtyVal').textContent = mfQty;
+  updateLocUI();
+}
+(function wireMfQty(){
+  const step = document.getElementById('mfQtyStep');
+  if(!step) return;
+  step.addEventListener('pointerdown', e => {
+    const b = e.target.closest('button[data-q]');
+    if(!b) return;
+    e.preventDefault();
+    setMfQty(mfQty + parseInt(b.dataset.q, 10));
+  });
+})();
+function addManifestShot(blob){
+  const slug = mfSlug(document.getElementById('mfName').value);
+  if(!slug){ toast('Name the manifest first', true); return; }
+  saveMfName();
+  const pnRaw = (document.getElementById('mfPN').value || '').trim().toUpperCase();
+  const pn = pnRaw.replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const id = ++idCounter;
+  const thumbUrl = URL.createObjectURL(blob);
+  queue.push({ id, status:'queued', mode:'manifest', rawBlob: blob, jpgBlob:null, thumbUrl,
+               slug, qty: mfQty, pn, ts: Date.now() });
+  flashLoc('× ' + mfQty + (pn ? ' · ' + pnRaw : ''));
+  setMfQty(1);                                       // next part starts back at 1
+  document.getElementById('mfPN').value = '';
+  renderStrip(); updateCounts(); processQueue();
+  if(!accessToken) toast('Saved — sign in to upload');
+}
+async function ensureManifestFolder(){
+  // name-only search (drive.file scope sees only folders this app made) -> never a duplicate
+  try{
+    const q = `name='${MANIFEST_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const d = await res.json();
+    if(d.files && d.files.length) return d.files[0].id;
+  }catch(e){}
+  if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
+  return ensureFolder(MANIFEST_FOLDER_NAME, driveFolderId);   // inside Ford Parts Photos (desktop can read it)
+}
+
 // ---------- Photoroom processing ----------
 async function processQueue(){
   if(processing) return;
@@ -1275,6 +1410,7 @@ async function processQueue(){
       if(accessToken){
         await uploadToDrive(item);
         item.status = 'uploaded';
+        if(item.mode === 'manifest') addMfTotals(item.slug, item.qty);
         setTimeout(()=>removeItem(item.id), 900);
       } else {
         item.status = 'ready';
@@ -1453,7 +1589,11 @@ async function ensureLocationFolder(){
 
 async function uploadToDrive(item){
   let folderId, name;
-  if(item.mode === 'locations'){
+  if(item.mode === 'manifest'){
+    if(!manifestFolderId){ manifestFolderId = await ensureManifestFolder(); }
+    folderId = manifestFolderId;
+    name = `mf-${item.slug}-${item.ts}-q${item.qty}${item.pn ? '-p' + item.pn : ''}.jpg`;
+  } else if(item.mode === 'locations'){
     if(!locationFolderId){ locationFolderId = await ensureLocationFolder(); }
     folderId = locationFolderId;
     if(item.kind === 'shelf'){
@@ -1499,7 +1639,9 @@ function renderStrip(){
     const div = document.createElement('div');
     div.className = 'thumb';
     const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error' || item.status === 'batch');
-    const badgeTxt = (item.mode === 'locations')
+    const badgeTxt = (item.mode === 'manifest')
+      ? ((item.status === 'uploaded' ? '✓ ' : item.status === 'error' ? 'Retry ' : '') + '×' + item.qty)
+      : (item.mode === 'locations')
       ? (item.status === 'uploaded' ? (item.kind === 'part' ? 'PART ✓' : 'SHELF ✓')
          : item.status === 'error' ? 'Retry'
          : (item.kind === 'part' ? 'PART' : 'SHELF'))
