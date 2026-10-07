@@ -303,6 +303,21 @@
       <div><label>HEIGHT</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimH" placeholder="in" autocomplete="off"></div>
       <div><label>WEIGHT</label><input type="text" inputmode="decimal" maxlength="3" id="dimWt" placeholder="lb / .oz" autocomplete="off"></div>
     </div>
+    <div class="cond-row">
+      <div class="lbl">CONDITION</div>
+      <div class="cond-keys" id="condKeys">
+        <button type="button" data-c="" class="on">New</button>
+        <button type="button" data-c="no">New oth</button>
+        <button type="button" data-c="ru">Rusty</button>
+        <button type="button" data-c="us">Used</button>
+        <button type="button" data-c="fp">Parts</button>
+      </div>
+      <div class="cond-note" id="condNote">
+        <textarea id="condDesc" rows="2" maxlength="1000"
+                  placeholder="Wear / damage notes for the buyer (optional)"></textarea>
+        <div class="hint">Shown on the listing. eBay does not allow this on New.</div>
+      </div>
+    </div>
     <div class="dims-shelf">
       <div class="f"><label>SHELF LOCATION (optional)</label>
         <input type="text" inputmode="numeric" pattern="[0-9]*" id="dimLoc"
@@ -331,21 +346,6 @@
         <button type="button" data-k="SP">␣</button>
         <button type="button" data-k="KB">⌨</button>
         <button type="button" data-k="BS">&#9003;</button>
-      </div>
-    </div>
-    <div class="cond-row">
-      <div class="lbl">CONDITION</div>
-      <div class="cond-keys" id="condKeys">
-        <button type="button" data-c="" class="on">New</button>
-        <button type="button" data-c="no">New oth</button>
-        <button type="button" data-c="ru">Rusty</button>
-        <button type="button" data-c="us">Used</button>
-        <button type="button" data-c="fp">Parts</button>
-      </div>
-      <div class="cond-note" id="condNote">
-        <textarea id="condDesc" rows="2" maxlength="1000"
-                  placeholder="Wear / damage notes for the buyer (optional)"></textarea>
-        <div class="hint">Shown on the listing. eBay does not allow this on New.</div>
       </div>
     </div>
     <div class="qty-row">
@@ -419,7 +419,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.6.3';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.7.2';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -951,9 +951,10 @@ async function uploadDims(dims){
   }
 }
 
-// A part number typed at photo 6 when the tag can't be photographed. Uploaded as
-// ford-pn-<epoch>.json; the desktop matches it to the item shot just before and uses
-// it INSTEAD of reading the number off the photo.
+// A part number typed at photo 6 when the tag can't be photographed. Normally it rides on
+// the photo name (-p<PN>); this ford-pn-<epoch>.json is only the fallback when that rename
+// fails. The desktop matches it to the item shot just before and uses it INSTEAD of
+// reading the number off the photo.
 async function uploadManualPN(pn){
   if(!driveFolderId){ driveFolderId = await ensureDriveFolder(); }
   const metadata = { name: `ford-pn-${Date.now()}.json`, parents: [driveFolderId] };
@@ -1147,14 +1148,15 @@ async function uploadCondNote(photoName, text){
   }
 }
 
-async function renameWithDims(L, W, H, wt, loc, qty){
-  // Encode as a suffix: ford-part-<shot>-<epoch>-<L>x<W>x<H>x<lb>.jpg
+async function renameWithDims(L, W, H, wt, loc, qty, pn){
+  // Encode as a suffix: ford-part-<shot>-<epoch>-<L>x<W>x<H>x<lb>[-qN][-cXX][-pPN][-SHELF].jpg
   // parse_ts/parse_seq on the desktop both use re.search, so the extra suffix is
   // invisible to photo grouping -- the numbers just ride along on the item's own photo.
   const base = stripDims(lastUpload.name).replace(/\.jpg$/i, '');
   const q = (qty && qty > 1) ? `-q${qty}` : '';
   const c = condCode ? `-c${condCode}` : '';        // New is the default and writes nothing
-  const newName = `${base}-${L}x${W}x${H}x${wt}${q}${c}${loc ? '-' + loc : ''}.jpg`;
+  const p = pn ? `-p${pn}` : '';                    // already encodePN'd
+  const newName = `${base}-${L}x${W}x${H}x${wt}${q}${c}${p}${loc ? '-' + loc : ''}.jpg`;
   const res = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${lastUpload.id}`, {
       method: 'PATCH',
@@ -1225,10 +1227,12 @@ function editLastItem(){
     setQty(m[5] ? parseInt(m[5], 10) : 1);
     setCond(m[6] || '');
     document.getElementById('condDesc').value = '';   // notes live in a sidecar, not the name
-    document.getElementById('dimLoc').value = (m[7] || '').replace(/~/g, '/');
+    document.getElementById('dimPN').value = decodePN(m[7]);   // kept on re-save, not wiped
+    document.getElementById('dimLoc').value = (m[8] || '').replace(/~/g, '/');
     toast('Editing the last item -- change anything and save again');
   }else{
     DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+    document.getElementById('dimPN').value = '';
     setQty(1); setCond('');
     toast('Last photo has no dimensions yet -- enter them now');
   }
@@ -1280,10 +1284,15 @@ async function saveDims(btn){
       return;
     }
     if(!lastUpload){ toast('No uploaded photo to name', true); return; }
+    // Manual part number (wrapped tag) -- rides on the photo name like the dims, so the
+    // desktop uses it instead of reading the photo with no time-window matching.
+    const pnEnc = encodePN(document.getElementById('dimPN').value);
+    const pnTyped = decodePN(pnEnc);
     let how;
     try{
-      await renameWithDims(L, W, H, wtCode, loc, onHandQty);
+      await renameWithDims(L, W, H, wtCode, loc, onHandQty, pnEnc);
       how = loc ? `on photo name, shelf ${loc.replace(/~/g, '/')}` : 'on photo name';
+      if(pnTyped) how += `, PN ${pnTyped}`;
       const note = condCode ? document.getElementById('condDesc').value.trim() : '';
       if(note){
         try{ await uploadCondNote(lastUpload.name, note); how += ' + note'; }
@@ -1298,13 +1307,12 @@ async function saveDims(btn){
                          condition_code: condCode,
                          captured_ms: Date.now(), source:'parts-cam' });
       how = 'as separate record';
-    }
-    // Manual part number (wrapped tag) -- save it as its own sidecar so the desktop
-    // uses it instead of reading the photo. Best-effort: never lose the dims over it.
-    const pnTyped = (document.getElementById('dimPN').value || '').trim().toUpperCase();
-    if(pnTyped){
-      try{ await uploadManualPN(pnTyped); how += ` + PN ${pnTyped}`; }
-      catch(e){ console.error(e); toast('Dimensions saved, part number FAILED', true); }
+      // Same fallback for the part number: its own sidecar. Best-effort -- never lose
+      // the dims over it.
+      if(pnTyped){
+        try{ await uploadManualPN(pnTyped); how += ` + PN ${pnTyped}`; }
+        catch(e2){ console.error(e2); toast('Dimensions saved, part number FAILED', true); }
+      }
     }
     const wtTxt = wtOz ? `${wtOz} oz` : (wt > 0 ? `${wt} lb` : '15 oz (default)');
     lastDimsMsg = `Last saved  ${L} x ${W} x ${H} in, ${wtTxt}` +
@@ -1330,7 +1338,19 @@ async function saveDims(btn){
 // exactly the queue of parts still waiting for a shelf -- no extra bookkeeping needed.
 // No /i flag: the qty marker is strictly lowercase 'q' so it can never be confused
 // with an uppercase shelf code such as Q5.
-const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(o?\d+)(?:-q(\d+))?(?:-c(no|ru|us|fp))?(?:-([A-Za-z0-9 ._~\-]+))?\.(?:jpe?g|JPE?G)$/;
+// Groups: 1-4 dims, 5 qty, 6 condition, 7 typed part number, 8 shelf.
+const DIMS_RE = /-(\d+)x(\d+)x(\d+)x(o?\d+)(?:-q(\d+))?(?:-c(no|ru|us|fp))?(?:-p([A-Z0-9_]+))?(?:-([A-Za-z0-9 ._~\-]+))?\.(?:jpe?g|JPE?G)$/;
+
+function encodePN(raw){
+  // A typed part number rides in the name as -p<PN>. Its dashes/spaces become '_' so the
+  // segment ends cleanly at the next '-' (the shelf); the desktop turns '_' back into '-'.
+  // The lowercase 'p' can never start a shelf, which encodeLoc always uppercases.
+  return String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function decodePN(enc){
+  return String(enc || '').replace(/_/g, '-');
+}
 
 function stripDims(name){
   // Re-saving must REPLACE the old suffix, never stack a second one on top.
@@ -1383,7 +1403,7 @@ async function loadPendingLocations(){
   try{ files = await driveList(); }
   catch(e){ list.innerHTML = `<div class="loc-empty">Could not read Drive: ${e.message}</div>`; return; }
 
-  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[7]; });
+  let pending = files.filter(f => { const m = DIMS_RE.exec(f.name); return m && !m[8]; });
   const total = pending.length;
   pending = pending.slice(0, LOC_MAX_ROWS);   // newest first; cap so the tab cannot be OOM-killed
   if(!pending.length){
