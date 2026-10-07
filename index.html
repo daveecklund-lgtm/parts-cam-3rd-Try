@@ -419,7 +419,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.6.2';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.6.3';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -743,7 +743,16 @@ async function saveBackendConfig(){
   fetchAccessToken();
 }
 
-async function fetchAccessToken(){
+// ONE token request at a time. At startup it was requested 2-3 times at once (page load,
+// visibilitychange, kickUploads) and EACH reply ran its own catch-up upload of the photos
+// taken before Drive connected -> the first part's photos uploaded 2-3 times (Dave 2026-10-07).
+let _tokenInFlight = null;
+function fetchAccessToken(){
+  if(_tokenInFlight) return _tokenInFlight;
+  _tokenInFlight = _fetchAccessTokenOnce().finally(() => { _tokenInFlight = null; });
+  return _tokenInFlight;
+}
+async function _fetchAccessTokenOnce(){
   if(!backendUrl || !appSecret){
     document.getElementById('signInBtn').style.visibility = 'visible';
     toast('Enter your token server address and secret to connect', true);
@@ -781,15 +790,13 @@ async function fetchAccessToken(){
     }catch(e){
       toast('Could not access Drive folder: ' + e.message, true);
     }
-    // flush any photos already processed while disconnected
+    // photos taken before Drive connected: hand them to the ONE upload pump, which marks each
+    // 'processing' while it uploads -- so no second caller can upload the same photo again
+    let held = false;
     for(const item of queue){
-      if(item.status === 'ready'){
-        try{
-          await uploadToDrive(item);
-          item.status = 'uploaded';   // stays on the strip (green) until dims are saved
-        }catch(e){ item.status='error'; item.errorMsg = e.message; }
-      }
+      if(item.status === 'ready'){ item.status = 'queued'; held = true; }
     }
+    if(held) processQueue();
     renderStrip(); updateCounts();
   }catch(e){
     accessToken = null;
