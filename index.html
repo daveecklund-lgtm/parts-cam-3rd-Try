@@ -124,10 +124,28 @@
   .badge.uploaded{background:rgba(95,174,110,0.9);color:#0e2413;}
   .badge.error{background:rgba(217,86,75,0.9);color:#fff;}
   .del-btn{
-    position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%;
-    background:rgba(0,0,0,0.75); color:#fff; font-size:13px; line-height:16px; text-align:center;
-    font-family:'Inter',sans-serif; font-weight:600; cursor:pointer; z-index:2;
+    position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%;
+    background:rgba(0,0,0,0.75); color:#fff; font-size:14px; line-height:18px; text-align:center;
+    font-family:'Inter',sans-serif; font-weight:600; cursor:pointer; z-index:3;
   }
+  /* photo position (1..6) in the top-left; the tape-tag shot is orange and stays last */
+  .thumb .num{
+    position:absolute; top:2px; left:2px; min-width:15px; height:15px; padding:0 3px; box-sizing:border-box;
+    border-radius:8px; background:rgba(0,0,0,0.75); color:#fff; z-index:2; pointer-events:none;
+    font:600 10px/15px 'IBM Plex Mono',monospace; text-align:center;
+  }
+  .thumb.tag .num{background:var(--orange);color:#1c1d1f;}
+  .thumb.oldpart{opacity:0.55;}
+  /* press-and-hold then drag to reorder: no iOS image callout / text selection */
+  .thumb{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
+  .thumb img{pointer-events:none;-webkit-user-drag:none;}
+  .thumb.dragging{opacity:0.3;border:2px dashed var(--orange);}
+  .drag-ghost{
+    position:fixed; z-index:200; width:58px; height:58px; border-radius:8px; overflow:hidden;
+    pointer-events:none; border:2px solid var(--orange); box-shadow:0 6px 18px rgba(0,0,0,0.6);
+    transform:translate(-50%,-50%) scale(1.15);
+  }
+  .drag-ghost img{width:100%;height:100%;object-fit:cover;}
 
   footer{padding:10px 16px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;min-height:132px;box-sizing:border-box;}
   .btn{
@@ -419,7 +437,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.7.2';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.8.0';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -439,6 +457,14 @@ function bumpCounter(){
   return n;
 }
 let shotCount = 0;       // cycles 1-5 per part, resets automatically
+// Which part each strip photo belongs to (bumped by clearStrip: New Part / dims saved).
+// Only the CURRENT part's photos can be reordered or retaken into their slot.
+let partSeq = 1;
+// Shot numbers freed by deleting a photo of the current part. The next capture REUSES the
+// lowest one, so a retaken photo 4 sorts back into position 4 on the desktop (which orders
+// an item's photos by shot number).
+let retakeSlots = [];
+let pauseUploads = false;   // held while Drive renames for a reorder are in flight
 let backendUrl = null;
 let appSecret = null;
 let accessToken = null;
@@ -637,10 +663,22 @@ function capturePhoto(){
   if(!video.videoWidth) { toast('Camera not ready yet', true); return; }
   playShutterSound();
   flashShotNumber();
+  // A retake fills the slot freed by deleting a photo (lowest first); decided here, in
+  // the tap, so the dims prompt below knows whether this is a retake.
+  const slot = retakeSlots.length ? Math.min(...retakeSlots) : null;
+  if(slot !== null){
+    retakeSlots = retakeSlots.filter(s => s !== slot);
+    const pos = queue.filter(q => q.part === partSeq && q.id < slot).length + 1;
+    document.getElementById('shotFlash').textContent = pos;   // show the slot it fills
+  }
   // shotCount cycles 1..6 per part and is reset by "New Part". idCounter never resets,
   // so a modulo on it drifts out of sync the moment New Part is used.
   const shotForThisPhoto = shotCount;
-  if(shotForThisPhoto === PHOTOS_PER_ITEM){
+  // The tape-tag (dims) shot: the 6th photo, unless this part already has its tag (a
+  // retake of photo 4 after photo 6 must not reopen the dims panel or become the tag).
+  const hasTag = queue.some(q => q.part === partSeq && q.isTag);
+  const isTag = shotForThisPhoto === PHOTOS_PER_ITEM && !hasTag;
+  if(isTag){
     // Must happen inside the tap handler: iOS only raises the keyboard when focus()
     // runs in a user gesture, and the toBlob/setTimeout path has already left it.
     openDimsForEntry();
@@ -671,10 +709,11 @@ function capturePhoto(){
   }
 
   const capturedMs = Date.now();   // capture time; uploads finish out of order
+  const part = partSeq;
   canvas.toBlob((blob)=>{
-    const id = bumpCounter();
+    const id = slot !== null ? slot : bumpCounter();
     const thumbUrl = URL.createObjectURL(blob);
-    queue.push({ id, capturedMs, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl });
+    queue.push({ id, capturedMs, status:'queued', rawBlob: blob, jpgBlob:null, thumbUrl, part, isTag });
     renderStrip();
     updateCounts();
     processQueue();
@@ -691,6 +730,7 @@ async function processQueue(){
     // causes entries to be skipped (which stalled uploads).
     let guard = 0;
     while(guard++ < 1000){
+      if(pauseUploads) break;                     // a reorder is renumbering photos
       const item = queue.find(i => i.status === 'queued');
       if(!item) break;
       item.status = 'processing';
@@ -717,7 +757,7 @@ async function processQueue(){
     processing = false;
   }
   // If anything arrived while we were busy, pick it up now instead of stalling.
-  if(queue.some(i => i.status === 'queued')){
+  if(!pauseUploads && queue.some(i => i.status === 'queued')){
     setTimeout(processQueue, 100);
   }
 }
@@ -891,9 +931,16 @@ async function uploadToDrive(item){
   };
   // On a RETRY, the previous attempt may have actually landed on Drive (frozen response) --
   // skip re-uploading if the file is already there, so we never duplicate it.
+  // lastUpload = the photo "Dimensions & weight" renames, i.e. the part's tag shot. A
+  // retake reuses a LOWER shot number, so it must not take that over.
+  const newest = !queue.some(q => q.part === item.part && q.id > item.id);
   if((item.attempts || 0) > 1){
     const existing = await driveFileExists(metadata.name);
-    if(existing){ setLastUpload({ id: existing.id, name: metadata.name }); return; }
+    if(existing){
+      item.driveId = existing.id; item.driveName = metadata.name;
+      if(newest) setLastUpload({ id: existing.id, name: metadata.name });
+      return;
+    }
   }
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
@@ -913,7 +960,10 @@ async function uploadToDrive(item){
   // Remember it so "Dimensions & weight" can rename this photo afterwards.
   try{
     const info = await res.json();
-    if(info && info.id) setLastUpload({ id: info.id, name: metadata.name });
+    if(info && info.id){
+      item.driveId = info.id; item.driveName = metadata.name;   // for delete / reorder
+      if(newest) setLastUpload({ id: info.id, name: metadata.name });
+    }
   }catch(e){ /* rename simply falls back to a sidecar file */ }
 }
 
@@ -1018,6 +1068,10 @@ async function deleteRetakePhoto6(btn){
       if(res.status === 401){ handleDriveAuthFailure(); }
       throw new Error(`Drive ${res.status} ${text.slice(0,120)}`);
     }
+    // Drop its thumbnail too, so the strip no longer counts a tag shot for this part and
+    // the retake is treated as photo 6 again (opens the dims panel, becomes the tag).
+    const gone = queue.find(q => q.driveId && q.driveId === lastUpload.id);
+    if(gone) removeItem(gone.id);
     setLastUpload(null);
     if(shotCount > 0) shotCount = shotCount - 1;   // 6 -> 5, so the next shot is 6 again
     document.getElementById('dimsPanel').style.display = 'none';
@@ -1500,6 +1554,8 @@ function clearStrip(){
       queue.splice(i, 1);
     }
   }
+  partSeq++;                    // anything left over belongs to the part just finished
+  retakeSlots = [];
   renderStrip(); updateCounts();
 }
 
@@ -1512,23 +1568,209 @@ function removeItem(id){
   }
 }
 
+// The strip, one part at a time, each part in SHOT-NUMBER order -- the order the desktop
+// puts the photos on the listing. Position = that order, 1-based.
+function stripGroups(){
+  const parts = [...new Set(queue.map(q => q.part))];
+  return parts.map(p => queue.filter(q => q.part === p).sort((a, b) => a.id - b.id));
+}
+
+function positionOf(item){
+  return queue.filter(q => q.part === item.part && q.id < item.id).length + 1;
+}
+
+const pad3 = n => String(n).padStart(3, '0');
+
+async function driveRename(fileId, name){
+  const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  }, 20000);
+  if(!res.ok){
+    if(res.status === 401){ handleDriveAuthFailure(); }
+    throw new Error(`Drive ${res.status}`);
+  }
+}
+
+// x on a thumbnail: trash it (Drive keeps it in Trash) and free its slot, so the next
+// photo taken goes back into the same position -- "delete photo 4 and retake it".
+async function deletePhoto(item){
+  if(item.status === 'processing'){ toast('Wait for it to finish uploading, then tap x', true); return; }
+  const pos = positionOf(item);
+  const current = item.part === partSeq;
+  const ok = confirm(`Delete photo ${pos}?` + (current ? ' The next photo you take goes in its place.' : ''));
+  reviveCamera();                                  // iOS pauses the preview behind confirm()
+  if(!ok) return;
+  if(item.driveId){
+    if(!accessToken){ toast('Not connected to Drive', true); return; }
+    try{
+      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${item.driveId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true })
+      }, 20000);
+      if(!res.ok){
+        if(res.status === 401){ handleDriveAuthFailure(); }
+        throw new Error(`Drive ${res.status}`);
+      }
+    }catch(e){ toast('Could not delete: ' + (e.message || e), true); return; }
+    if(lastUpload && lastUpload.id === item.driveId) setLastUpload(null);
+  }
+  if(current){
+    retakeSlots.push(item.id);
+    if(shotCount > 0) shotCount--;                 // so photo 6 still opens the dims panel
+  }
+  removeItem(item.id);
+  toast(current ? `Photo ${pos} deleted — take it again` : `Photo ${pos} deleted`);
+}
+
+// Drag-reorder: hand the part's existing shot numbers out again in the new order, and
+// rename the photos already in Drive to match (ford-part-<shot>-<epoch>... keeps its
+// epoch + any suffix, so grouping and sidecars are unaffected).
+async function applyReorder(order){
+  const slots = order.map(i => i.id).sort((a, b) => a - b);
+  const changes = order.map((it, k) => ({ it, to: slots[k] })).filter(c => c.it.id !== c.to);
+  if(!changes.length){ renderStrip(); return; }
+  if(changes.some(c => c.it.status === 'processing')){
+    toast('A photo is still uploading — try again in a moment', true); renderStrip(); return;
+  }
+  const inDrive = changes.filter(c => c.it.driveId);
+  if(inDrive.length && !accessToken){ toast('Not connected to Drive', true); renderStrip(); return; }
+  pauseUploads = true;                             // no queued photo starts uploading mid-renumber
+  const done = [];
+  try{
+    for(const c of inDrive){
+      c.name = c.it.driveName.replace(/^ford-part-\d+-/, `ford-part-${pad3(c.to)}-`);
+      await driveRename(c.it.driveId, c.name);
+      done.push(c);
+    }
+  }catch(e){
+    for(const c of done){                          // put back what was already renamed
+      try{ await driveRename(c.it.driveId, c.it.driveName); }catch(_){}
+    }
+    pauseUploads = false;
+    toast('Reorder failed: ' + (e.message || e), true);
+    renderStrip(); processQueue();
+    return;
+  }
+  for(const c of changes){
+    c.it.id = c.to;
+    if(c.name){
+      if(lastUpload && lastUpload.id === c.it.driveId) setLastUpload({ id: c.it.driveId, name: c.name });
+      c.it.driveName = c.name;
+    }
+  }
+  pauseUploads = false;
+  renderStrip(); processQueue();
+  toast('Photo order saved');
+}
+
+// Press and hold (~0.3 s) a thumbnail, then drag it sideways. Plain swipes still scroll.
+const HOLD_MS = 300;
+let stripDragging = false;   // upload progress must not redraw the strip under a finger
+function wireDrag(div, item){
+  let timer = null, start = null, drag = null;
+  const pt = e => (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+
+  const cancelHold = () => { clearTimeout(timer); timer = null; };
+  const onDown = e => {
+    if(e.target.closest('.del-btn')) return;
+    const p = pt(e); start = { x: p.clientX, y: p.clientY };
+    timer = setTimeout(() => beginDrag(start), HOLD_MS);
+  };
+  const onMove = e => {
+    const p = pt(e);
+    if(!drag){
+      if(timer && start && Math.hypot(p.clientX - start.x, p.clientY - start.y) > 10) cancelHold();
+      return;
+    }
+    e.preventDefault();                            // we own this gesture -> no scrolling
+    drag.ghost.style.left = p.clientX + 'px';
+    drag.ghost.style.top = p.clientY + 'px';
+    // drop position = before the first movable sibling whose centre is right of the finger
+    const sibs = drag.movable.filter(d => d !== div);
+    let before = drag.tagDiv || null;              // never past the tape-tag photo
+    for(const d of sibs){
+      const r = d.getBoundingClientRect();
+      if(p.clientX < r.left + r.width / 2){ before = d; break; }
+    }
+    if(before !== div.nextSibling) div.parentNode.insertBefore(div, before || drag.after);
+    const sr = drag.strip.getBoundingClientRect();   // auto-scroll near the strip's edges
+    if(p.clientX < sr.left + 30) drag.strip.scrollLeft -= 8;
+    else if(p.clientX > sr.right - 30) drag.strip.scrollLeft += 8;
+  };
+  const onUp = () => {
+    cancelHold();
+    if(!drag) return;
+    const d = drag; drag = null;
+    stripDragging = false;
+    d.ghost.remove();
+    div.classList.remove('dragging');
+    const order = [...d.strip.querySelectorAll(`.thumb[data-part="${item.part}"]`)]
+      .map(el => queue.find(q => q.id === +el.dataset.id)).filter(Boolean);
+    applyReorder(order);
+  };
+  function beginDrag(p){
+    timer = null;
+    const strip = div.parentNode;
+    const all = [...strip.querySelectorAll(`.thumb[data-part="${item.part}"]`)];
+    const tagDiv = all.find(el => el.classList.contains('tag')) || null;
+    const lastOfPart = all[all.length - 1];
+    drag = {
+      strip, tagDiv,
+      movable: all.filter(el => el !== tagDiv),
+      // where "drop at the end" goes: just past this part's last thumbnail
+      after: lastOfPart.nextSibling,
+      ghost: document.createElement('div')
+    };
+    stripDragging = true;
+    drag.ghost.className = 'drag-ghost';
+    drag.ghost.innerHTML = `<img src="${item.thumbUrl}">`;
+    drag.ghost.style.left = p.x + 'px'; drag.ghost.style.top = p.y + 'px';
+    document.body.appendChild(drag.ghost);
+    div.classList.add('dragging');
+    try{ navigator.vibrate && navigator.vibrate(15); }catch(e){}
+  }
+  div.addEventListener('touchstart', onDown, { passive: true });
+  div.addEventListener('touchmove', onMove, { passive: false });
+  div.addEventListener('touchend', onUp);
+  div.addEventListener('touchcancel', onUp);
+  div.addEventListener('mousedown', e => {
+    onDown(e);
+    const mm = ev => onMove(ev);
+    const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); onUp(); };
+    document.addEventListener('mousemove', mm);
+    document.addEventListener('mouseup', mu);
+  });
+  div.addEventListener('contextmenu', e => e.preventDefault());   // long-press menu
+}
+
 function renderStrip(){
+  if(stripDragging) return;                        // redrawn when the drag ends
   const strip = document.getElementById('strip');
   strip.innerHTML = '';
-  queue.forEach(item=>{
+  stripGroups().forEach(group => group.forEach((item, k) => {
     const div = document.createElement('div');
-    div.className = 'thumb ' + item.status;   // .uploaded -> green frame
-    const canDelete = (item.status === 'queued' || item.status === 'ready' || item.status === 'error');
-    div.innerHTML = `<img src="${item.thumbUrl}"><div class="badge ${item.status}">${labelFor(item.status)}</div>${canDelete ? '<div class="del-btn">&times;</div>' : ''}`;
+    const current = item.part === partSeq;
+    // .uploaded -> green frame; .tag -> orange number (the tape-tag shot stays last)
+    div.className = 'thumb ' + item.status + (item.isTag ? ' tag' : '') + (current ? '' : ' oldpart');
+    div.dataset.id = item.id;
+    div.dataset.part = item.part;
+    const canDelete = item.status !== 'processing';
+    div.innerHTML = `<img src="${item.thumbUrl}"><div class="num">${k + 1}</div>`
+      + `<div class="badge ${item.status}">${labelFor(item.status)}</div>`
+      + (canDelete ? '<div class="del-btn">&times;</div>' : '');
     if(item.status === 'error'){
-      div.querySelector('img').onclick = ()=>{ item.status='queued'; item.errorMsg=null; renderStrip(); updateCounts(); processQueue(); };
+      div.onclick = ()=>{ item.status='queued'; item.errorMsg=null; renderStrip(); updateCounts(); processQueue(); };
     }
     if(canDelete){
       const delBtn = div.querySelector('.del-btn');
-      delBtn.onclick = (e)=>{ e.stopPropagation(); removeItem(item.id); };
+      delBtn.onclick = (e)=>{ e.stopPropagation(); deletePhoto(item); };
     }
+    if(current && !item.isTag) wireDrag(div, item);
     strip.appendChild(div);
-  });
+  }));
 }
 
 function labelFor(status){
