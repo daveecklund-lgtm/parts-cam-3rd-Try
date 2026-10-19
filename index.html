@@ -178,8 +178,11 @@
   }
   .dims-grid input:focus{outline:none;border-color:var(--orange);}
   .dims-last{font-size:11px;color:var(--text-dim);margin:0 0 10px;min-height:14px;}
-  .speak-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:0 0 10px;}
-  .speak-row input{width:18px;height:18px;accent-color:var(--orange);}
+  .dictate-btn{width:100%;margin:0 0 8px;font-size:15px;}
+  .dictate-btn.listening{background:var(--orange);color:#1c1d1f;border-color:var(--orange);}
+  .dictate-heard{min-height:14px;margin:0 0 10px;font-family:'IBM Plex Mono',monospace;
+                 font-size:11px;color:var(--text-dim);line-height:1.35;}
+  .dictate-heard.bad{color:var(--error);}
   .dims-shelf{display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;}
   .dims-shelf .f{flex:1;}
   .dims-shelf label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:3px;letter-spacing:0.03em;}
@@ -317,6 +320,9 @@
   <div id="dimsPanel" class="setup-panel" style="display:none;">
     <p>Package size and weight for the item you just shot. Saved to Drive with a timestamp
        Whole inches and whole pounds. Written onto the last photo's name.</p>
+    <button type="button" class="btn btn-secondary dictate-btn" id="dictateBtn"
+            onclick="toggleDictate()" style="display:none;">&#127908; Say the 4 numbers</button>
+    <div class="dictate-heard" id="dictateHeard"></div>
     <div class="dims-grid">
       <div><label>LENGTH</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimL" placeholder="in" autocomplete="off"></div>
       <div><label>WIDTH</label><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" id="dimW" placeholder="in" autocomplete="off"></div>
@@ -377,7 +383,6 @@
       </div>
     </div>
     <p class="dims-last" id="dimsLast"></p>
-    <label class="speak-row"><input type="checkbox" id="speakDims" onchange="setSpeakDims(this.checked)"> Speak dimensions &amp; weight</label>
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
     <button class="btn btn-secondary" onclick="skipShelf(this)" style="width:100%;margin-top:6px;">Save without shelf</button>
     <button class="btn btn-secondary" onclick="toggleDims()" style="width:100%; margin-top:6px;">Cancel</button>
@@ -440,7 +445,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.9.0';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.11.0';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -1037,7 +1042,6 @@ function openDimsForEntry(){
   el.style.display = 'block';
   document.getElementById('dimsLast').textContent = lastDimsMsg;
   DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
-  spokenVals = {};                             // new part -> call out every box again
   const pnEl = document.getElementById('dimPN'); if(pnEl) pnEl.value = '';
   setQty(1);                                   // default: nothing to touch for a single unit
   setCond('');                                 // default: New
@@ -1091,48 +1095,139 @@ async function deleteRetakePhoto6(btn){
 // ---------- audible callouts (Dave 2026-10-19: default ON) ----------
 // Each number is spoken as it's committed ("Length 10" ... "Weight 6 pounds") so a typo is
 // heard before Save, and the full set is read back after Save. Eyes stay on the part.
-const SPEAK_KEY = 'speakDims';
-let speakDims = true;
-try{ speakDims = localStorage.getItem(SPEAK_KEY) !== '0'; }catch(e){}
-document.getElementById('speakDims').checked = speakDims;
-function setSpeakDims(on){
-  speakDims = !!on;
-  try{ localStorage.setItem(SPEAK_KEY, on ? '1' : '0'); }catch(e){}
-  if(!on && window.speechSynthesis) speechSynthesis.cancel();
+// ---------- dictation: say four numbers, they drop straight in ----------
+// Dave: "I want to speak 4 numbers and they drop instantly." No command words and no
+// readback -- bare numbers only: "12 5 3 2" -> length, width, height, weight in lb.
+// A spoken decimal keeps the weight box's existing convention: ".15" = 15 oz.
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+// Fallback only -- iOS returns dictated numbers as digits. Homophones (to/too/for/ate/
+// oh) are deliberately absent so stray speech cannot invent a dimension.
+const NUM_WORDS = {
+  zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9,
+  ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16,
+  seventeen:17, eighteen:18, nineteen:19, twenty:20, thirty:30, forty:40, fifty:50,
+  sixty:60, seventy:70, eighty:80, ninety:90
+};
+const DICT_ORDER = ['dimL', 'dimW', 'dimH', 'dimWt'];
+
+// Which box he was last in, so a short follow-up utterance patches THAT box. Cannot use
+// document.activeElement: tapping the mic moves focus to the button.
+let lastDimField = null;
+
+// Numbers in spoken order. {v, oz} -- oz marks a decimal, which only the weight box uses.
+function parseSpokenNumbers(raw){
+  const toks = (' ' + String(raw || '').toLowerCase()
+      .replace(/[^a-z0-9. ]/g, ' ')
+      .replace(/\bpoint\b/g, ' . ')      // "point fifteen" -> ". 15" -> 15 oz
+      .replace(/\s+/g, ' ').trim() + ' ').trim().split(' ').filter(Boolean);
+  const out = [];
+  for(let i = 0; i < toks.length; i++){
+    const t = toks[i];
+    if(t === '.'){                        // a bare dot: the next number is ounces
+      const nx = toks[i + 1];
+      const v = /^\d+$/.test(nx || '') ? parseInt(nx, 10) : NUM_WORDS[nx];
+      if(v !== undefined){ out.push({ v: v, oz: true }); i++; }
+      continue;
+    }
+    const m = t.match(/^(\d*)\.(\d{1,2})$/);   // ".15" or "0.15"
+    if(m){ out.push({ v: parseInt(m[2], 10), oz: true }); continue; }
+    if(/^\d+$/.test(t)){ out.push({ v: parseInt(t, 10), oz: false }); continue; }
+    const w = NUM_WORDS[t];
+    if(w === undefined) continue;
+    let v = w;
+    const nxt = NUM_WORDS[toks[i + 1]];
+    if(v >= 20 && v % 10 === 0 && nxt !== undefined && nxt < 10){ v += nxt; i++; }
+    out.push({ v: v, oz: false });
+  }
+  return out;
 }
-function say(text){
-  if(!speakDims || !text || !window.speechSynthesis) return;
+
+let dictNote = '';
+// Drop the numbers into the boxes. Idempotent: re-applying the same transcript writes
+// the same values, which is what lets interim results update live.
+function dropSpokenNumbers(raw){
+  const nums = parseSpokenNumbers(raw);
+  if(!nums.length) return 0;
+  // Four numbers is a full set and always starts at Length. One or two patch the box he
+  // was last in, so a follow-up "2" fixes just the weight.
+  let start = 0;
+  if(nums.length < 3 && DICT_ORDER.indexOf(lastDimField) >= 0) start = DICT_ORDER.indexOf(lastDimField);
+  let count = 0;
+  nums.slice(0, DICT_ORDER.length - start).forEach((nv, k) => {
+    const id = DICT_ORDER[start + k];
+    if(!id) return;
+    let out;
+    if(id === 'dimWt'){
+      if(nv.oz){
+        // Save accepts the oz form for 1-15 only; 16 oz IS a pound. Convert heavier
+        // values to pounds (rounded UP) rather than typing something Save rejects.
+        if(nv.v >= 1 && nv.v <= 15) out = '.' + nv.v;
+        else { out = String(Math.ceil(nv.v / 16)); dictNote = ' (' + nv.v + ' oz = ' + out + ' lb)'; }
+      } else out = String(nv.v);
+    }else{
+      if(nv.oz || nv.v <= 0) return;      // a decimal is meaningless for a dimension
+      out = String(nv.v);
+    }
+    document.getElementById(id).value = out;
+    count++;
+  });
+  // Park on the first gap, and RECORD it rather than relying on the focus event: a
+  // programmatic focus() does not reliably dispatch one, and the follow-up-utterance
+  // path depends on knowing which box we left him in.
+  const gap = DICT_ORDER.find(id => !document.getElementById(id).value.trim());
+  if(gap) lastDimField = gap;
+  const el = document.getElementById(gap || 'dimLoc');
+  if(el) el.focus();
+  return count;
+}
+
+let dictating = false, recog = null;
+function _dictateUI(on, msg, bad){
+  dictating = on;
+  const b = document.getElementById('dictateBtn');
+  if(b){
+    b.classList.toggle('listening', on);
+    b.innerHTML = on ? '&#9724; Listening&hellip; tap to stop' : '&#127908; Say the 4 numbers';
+  }
+  const h = document.getElementById('dictateHeard');
+  if(h && msg !== undefined){ h.textContent = msg; h.classList.toggle('bad', !!bad); }
+}
+
+function toggleDictate(){
+  if(!SpeechRec){ _dictateUI(false, 'Dictation needs Safari (not the Home Screen app).', true); return; }
+  if(dictating){ try{ recog.stop(); }catch(e){} return; }
   try{
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    speechSynthesis.speak(u);        // queued, not cancelled: fast typing still hears every box
-  }catch(e){}
+    recog = new SpeechRec();
+    recog.lang = 'en-US';
+    recog.continuous = true;         // all four numbers in one breath
+    recog.interimResults = true;     // land them while he is still talking
+    recog.onresult = (ev) => {
+      dictNote = '';
+      let txt = '';
+      for(let i = 0; i < ev.results.length; i++) txt += ' ' + ev.results[i][0].transcript;
+      dropSpokenNumbers(txt);
+      const got = parseSpokenNumbers(txt).length;
+      _dictateUI(true, txt.trim() + dictNote);
+      if(got >= DICT_ORDER.length){ try{ recog.stop(); }catch(e){} }   // full set -> done
+    };
+    recog.onerror = (ev) => {
+      const why = { 'not-allowed': 'Microphone blocked \u2014 allow it for this site in Safari settings.',
+                    'service-not-allowed': 'Microphone blocked \u2014 allow it for this site in Safari settings.',
+                    'no-speech': 'Did not catch anything \u2014 tap and say the numbers again.',
+                    'network': 'Dictation needs a connection.',
+                    'aborted': '' }[ev.error] || ('Dictation error: ' + ev.error);
+      _dictateUI(false, why, !!why);
+    };
+    recog.onend = () => { if(dictating) _dictateUI(false); };
+    recog.start();
+    _dictateUI(true, 'Listening \u2014 say: length width height weight');
+  }catch(e){
+    _dictateUI(false, 'Could not start dictation: ' + (e.message || 'error'), true);
+  }
 }
-// iOS only allows speech once it has been started from a tap. The auto-advance callouts
-// fire from a timer, so prime the engine (silently) on the first touch anywhere.
-(function primeSpeech(){
-  const prime = () => {
-    try{ const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }catch(e){}
-    document.removeEventListener('pointerdown', prime, true);
-  };
-  if(window.speechSynthesis) document.addEventListener('pointerdown', prime, true);
-})();
-// The weight box: '6' = 6 lb, '.15' = 15 oz, '0' = desktop default (15 oz)
-function weightWords(raw){
-  if(/^\.\d{1,2}$/.test(raw)){ const oz = parseInt(raw.slice(1), 10); return `${oz} ounce${oz === 1 ? '' : 's'}`; }
-  const n = Number(raw);
-  if(!Number.isInteger(n)) return raw;
-  return n === 0 ? 'default weight' : `${n} pound${n === 1 ? '' : 's'}`;
-}
-const CALL_NAMES = { dimL: 'Length', dimW: 'Width', dimH: 'Height', dimWt: 'Weight' };
-let spokenVals = {};                 // field -> value last called out (no repeats on blur)
-function calloutField(id){
-  if(!CALL_NAMES[id]) return;
-  const v = document.getElementById(id).value.trim();
-  if(!v || v === '.' || spokenVals[id] === v) return;
-  spokenVals[id] = v;
-  say(`${CALL_NAMES[id]} ${id === 'dimWt' ? weightWords(v) : v}`);
-}
+// Only offer the button where the browser can actually do it.
+if(SpeechRec){ const b = document.getElementById('dictateBtn'); if(b) b.style.display = ''; }
 
 function wireDimsAutoAdvance(){
   DIM_FIELDS.forEach((id, i) => {
@@ -1152,14 +1247,14 @@ function wireDimsAutoAdvance(){
       // and a timer firing mid-entry made it feel jumpy.
       if(id === 'dimLoc') return;
       dimsAdvanceTimer = setTimeout(() => {
-        calloutField(id);
         const next = DIM_FIELDS[i + 1];
         if(next) document.getElementById(next).focus();
       }, DIMS_ADVANCE_MS);
     });
     // a manual tap elsewhere cancels a pending jump so focus never moves under his finger
     // (and still calls out what was typed, since the timer that would have didn't fire)
-    el.addEventListener('blur', () => { clearTimeout(dimsAdvanceTimer); calloutField(id); });
+    el.addEventListener('blur', () => clearTimeout(dimsAdvanceTimer));
+    el.addEventListener('focus', () => { lastDimField = id; });   // see lastDimField
   });
 }
 wireDimsAutoAdvance();
@@ -1426,9 +1521,6 @@ async function saveDims(btn){
                   (loc ? `  @ ${loc.replace(/~/g, '/')}` : '') +
                   (pnTyped ? `  PN ${pnTyped}` : '');
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
-    spokenVals = {};
-    say(`Saved. ${L} by ${W} by ${H}, ${weightWords(wtOz ? '.' + wtOz : String(wt))}` +
-        (onHandQty > 1 ? `, quantity ${onHandQty}` : ''));
     document.getElementById('dimPN').value = '';
     document.getElementById('dimsPanel').style.display = 'none';
     clearStrip();                 // dims saved -> the item's mini images disappear
