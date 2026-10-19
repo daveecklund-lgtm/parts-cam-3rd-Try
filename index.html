@@ -178,6 +178,8 @@
   }
   .dims-grid input:focus{outline:none;border-color:var(--orange);}
   .dims-last{font-size:11px;color:var(--text-dim);margin:0 0 10px;min-height:14px;}
+  .speak-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);margin:0 0 10px;}
+  .speak-row input{width:18px;height:18px;accent-color:var(--orange);}
   .dims-shelf{display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;}
   .dims-shelf .f{flex:1;}
   .dims-shelf label{display:block;font-size:10.5px;color:var(--text-dim);margin-bottom:3px;letter-spacing:0.03em;}
@@ -375,6 +377,7 @@
       </div>
     </div>
     <p class="dims-last" id="dimsLast"></p>
+    <label class="speak-row"><input type="checkbox" id="speakDims" onchange="setSpeakDims(this.checked)"> Speak dimensions &amp; weight</label>
     <button class="btn btn-primary" onclick="saveDims(this)" style="width:100%;">Save dimensions</button>
     <button class="btn btn-secondary" onclick="skipShelf(this)" style="width:100%;margin-top:6px;">Save without shelf</button>
     <button class="btn btn-secondary" onclick="toggleDims()" style="width:100%; margin-top:6px;">Cancel</button>
@@ -437,7 +440,7 @@
 <script>
 const OUTPUT_SIZE = "1600x1600";
 const PADDING = "5%";
-const APP_VERSION = 'v3.8.0';   // bump this when deploying; shown in the header
+const APP_VERSION = 'v3.9.0';   // bump this when deploying; shown in the header
 const PHOTOS_PER_ITEM = 6;   // prompt for dimensions on every 6th shot
 const DRIVE_FOLDER_NAME = "Ford Parts Photos";
 
@@ -1034,6 +1037,7 @@ function openDimsForEntry(){
   el.style.display = 'block';
   document.getElementById('dimsLast').textContent = lastDimsMsg;
   DIM_FIELDS.forEach(id => document.getElementById(id).value = '');
+  spokenVals = {};                             // new part -> call out every box again
   const pnEl = document.getElementById('dimPN'); if(pnEl) pnEl.value = '';
   setQty(1);                                   // default: nothing to touch for a single unit
   setCond('');                                 // default: New
@@ -1084,6 +1088,52 @@ async function deleteRetakePhoto6(btn){
   }
 }
 
+// ---------- audible callouts (Dave 2026-10-19: default ON) ----------
+// Each number is spoken as it's committed ("Length 10" ... "Weight 6 pounds") so a typo is
+// heard before Save, and the full set is read back after Save. Eyes stay on the part.
+const SPEAK_KEY = 'speakDims';
+let speakDims = true;
+try{ speakDims = localStorage.getItem(SPEAK_KEY) !== '0'; }catch(e){}
+document.getElementById('speakDims').checked = speakDims;
+function setSpeakDims(on){
+  speakDims = !!on;
+  try{ localStorage.setItem(SPEAK_KEY, on ? '1' : '0'); }catch(e){}
+  if(!on && window.speechSynthesis) speechSynthesis.cancel();
+}
+function say(text){
+  if(!speakDims || !text || !window.speechSynthesis) return;
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    speechSynthesis.speak(u);        // queued, not cancelled: fast typing still hears every box
+  }catch(e){}
+}
+// iOS only allows speech once it has been started from a tap. The auto-advance callouts
+// fire from a timer, so prime the engine (silently) on the first touch anywhere.
+(function primeSpeech(){
+  const prime = () => {
+    try{ const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }catch(e){}
+    document.removeEventListener('pointerdown', prime, true);
+  };
+  if(window.speechSynthesis) document.addEventListener('pointerdown', prime, true);
+})();
+// The weight box: '6' = 6 lb, '.15' = 15 oz, '0' = desktop default (15 oz)
+function weightWords(raw){
+  if(/^\.\d{1,2}$/.test(raw)){ const oz = parseInt(raw.slice(1), 10); return `${oz} ounce${oz === 1 ? '' : 's'}`; }
+  const n = Number(raw);
+  if(!Number.isInteger(n)) return raw;
+  return n === 0 ? 'default weight' : `${n} pound${n === 1 ? '' : 's'}`;
+}
+const CALL_NAMES = { dimL: 'Length', dimW: 'Width', dimH: 'Height', dimWt: 'Weight' };
+let spokenVals = {};                 // field -> value last called out (no repeats on blur)
+function calloutField(id){
+  if(!CALL_NAMES[id]) return;
+  const v = document.getElementById(id).value.trim();
+  if(!v || v === '.' || spokenVals[id] === v) return;
+  spokenVals[id] = v;
+  say(`${CALL_NAMES[id]} ${id === 'dimWt' ? weightWords(v) : v}`);
+}
+
 function wireDimsAutoAdvance(){
   DIM_FIELDS.forEach((id, i) => {
     const el = document.getElementById(id);
@@ -1102,12 +1152,14 @@ function wireDimsAutoAdvance(){
       // and a timer firing mid-entry made it feel jumpy.
       if(id === 'dimLoc') return;
       dimsAdvanceTimer = setTimeout(() => {
+        calloutField(id);
         const next = DIM_FIELDS[i + 1];
         if(next) document.getElementById(next).focus();
       }, DIMS_ADVANCE_MS);
     });
     // a manual tap elsewhere cancels a pending jump so focus never moves under his finger
-    el.addEventListener('blur', () => clearTimeout(dimsAdvanceTimer));
+    // (and still calls out what was typed, since the timer that would have didn't fire)
+    el.addEventListener('blur', () => { clearTimeout(dimsAdvanceTimer); calloutField(id); });
   });
 }
 wireDimsAutoAdvance();
@@ -1374,6 +1426,9 @@ async function saveDims(btn){
                   (loc ? `  @ ${loc.replace(/~/g, '/')}` : '') +
                   (pnTyped ? `  PN ${pnTyped}` : '');
     ['dimL','dimW','dimH','dimWt'].forEach(i => document.getElementById(i).value = '');
+    spokenVals = {};
+    say(`Saved. ${L} by ${W} by ${H}, ${weightWords(wtOz ? '.' + wtOz : String(wt))}` +
+        (onHandQty > 1 ? `, quantity ${onHandQty}` : ''));
     document.getElementById('dimPN').value = '';
     document.getElementById('dimsPanel').style.display = 'none';
     clearStrip();                 // dims saved -> the item's mini images disappear
